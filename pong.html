@@ -1,4 +1,430 @@
 <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pong - HTML5 Canvas Game</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --accent: #22d3ee;
+      --accent2: #a78bfa;
+      --danger: #ef4444;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(1200px 800px at 10% 10%, #111827, var(--bg));
+      color: var(--text);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      overflow: hidden;
+    }
+
+    header, footer {
+      padding: 12px 20px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: .5px;
+    }
+
+    .wrap {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 16px;
+      padding: 16px;
+      height: 100%;
+      min-height: 0;
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .controls label { font-size: 12px; opacity: .9; }
+    .controls .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+
+    .btn {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,.15);
+      background: linear-gradient(180deg, rgba(34,211,238,.15), rgba(167,139,250,.06));
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform .06s ease, box-shadow .2s ease, background .2s ease;
+      box-shadow: 0 6px 16px rgba(34,211,238,.15);
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn.danger { background: linear-gradient(180deg, rgba(239,68,68,.15), rgba(239,68,68,.06)); border-color: rgba(239,68,68,.4); }
+    .btn.secondary { background: linear-gradient(180deg, rgba(167,139,250,.15), rgba(34,211,238,.06)); }
+
+    .kbd {
+      font-size: 12px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.15);
+      padding: 2px 6px;
+      border-radius: 6px;
+      margin-left: 6px;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(800px 600px at 80% 20%, rgba(34,211,238,.1), transparent),
+                  radial-gradient(800px 600px at 20% 80%, rgba(167,139,250,.1), transparent),
+                  #0b1022;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 14px;
+      box-shadow: inset 0 0 40px rgba(0,0,0,.35), 0 10px 30px rgba(0,0,0,.25);
+    }
+
+    .score {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+      border-top: 1px dashed rgba(255,255,255,.1);
+      padding-top: 10px;
+      margin-top: 2px;
+    }
+
+    .small { font-size: 12px; opacity: .8; }
+    .sep { opacity: .3; margin: 8px 0; border-top: 1px dashed rgba(255,255,255,.15); }
+
+    .legend { display: grid; gap: 6px; font-size: 12px; }
+
+    @media (max-width: 900px) {
+      .wrap { grid-template-columns: 1fr; }
+      body { overflow: auto; }
+      canvas { height: 60vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🏓 Pong — HTML5 Canvas</h1>
+  </header>
+
+  <main class="wrap">
+    <aside class="panel">
+      <div class="controls">
+        <div class="row"><label>Game Mode</label>
+          <select id="mode" class="btn">
+            <option value="cpu">Single Player (vs CPU)</option>
+            <option value="p2">Two Players</option>
+          </select>
+        </div>
+        <div class="row"><label>Difficulty</label>
+          <select id="difficulty" class="btn">
+            <option value="easy">Easy</option>
+            <option value="normal" selected>Normal</option>
+            <option value="hard">Hard</option>
+            <option value="insane">Insane</option>
+          </select>
+        </div>
+        <div class="row"><label>Ball Speed</label>
+          <input id="ballSpeed" type="range" min="3" max="14" value="6" />
+        </div>
+        <div class="row"><label>Max Score</label>
+          <input id="maxScore" type="number" min="1" max="21" value="7" class="btn" style="width:80px;"/>
+        </div>
+        <div class="row" style="gap:6px; grid-template-columns: repeat(3, 1fr);">
+          <button id="start" class="btn">Start</button>
+          <button id="pause" class="btn secondary">Pause</button>
+          <button id="reset" class="btn danger">Reset</button>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="legend">
+        <div><strong>Player 1</strong> — <span class="kbd">W</span>/<span class="kbd">S</span></div>
+        <div><strong>Player 2</strong> — <span class="kbd">↑</span>/<span class="kbd">↓</span></div>
+        <div><strong>Pause</strong> — <span class="kbd">Space</span></div>
+        <div class="small">Tip: Add spin by moving your paddle while hitting the ball.</div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="score">
+        <div><div class="small">Player 1</div><div id="s1" style="font-size:28px;">0</div></div>
+        <div><div class="small">Player 2</div><div id="s2" style="font-size:28px;">0</div></div>
+      </div>
+    </aside>
+
+    <section>
+      <canvas id="game" width="960" height="640" aria-label="Pong game canvas" role="img"></canvas>
+    </section>
+  </main>
+
+  <footer class="small" style="text-align:center; padding:10px 20px; opacity:.7;">
+    Built with Canvas 2D. © 2025
+  </footer>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    // UI elements
+    const s1El = document.getElementById('s1');
+    const s2El = document.getElementById('s2');
+    const startBtn = document.getElementById('start');
+    const pauseBtn = document.getElementById('pause');
+    const resetBtn = document.getElementById('reset');
+    const modeSel = document.getElementById('mode');
+    const difficultySel = document.getElementById('difficulty');
+    const ballSpeedRange = document.getElementById('ballSpeed');
+    const maxScoreInput = document.getElementById('maxScore');
+
+    // Game constants
+    const W = canvas.width, H = canvas.height;
+    const PADDLE_W = 14, PADDLE_H = 100, BALL_R = 9;
+    const PADDLE_MARGIN = 26;
+
+    // Game state
+    let state = {
+      running: false,
+      paused: false,
+      mode: 'cpu',
+      difficulty: 'normal',
+      maxScore: 7,
+      p1: { x: PADDLE_MARGIN, y: H/2 - PADDLE_H/2, vy: 0, score: 0 },
+      p2: { x: W - PADDLE_MARGIN - PADDLE_W, y: H/2 - PADDLE_H/2, vy: 0, score: 0 },
+      ball: { x: W/2, y: H/2, vx: 6, vy: 2 },
+      lastTime: 0
+    };
+
+    function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+
+    function resetBall(dir = (Math.random() < .5 ? -1 : 1)){
+      const speed = parseInt(ballSpeedRange.value, 10);
+      state.ball.x = W/2; state.ball.y = H/2;
+      const angle = (Math.random() * 0.6 - 0.3); // -0.3..0.3 rad ~ +/-17°
+      state.ball.vx = dir * speed * Math.cos(angle);
+      state.ball.vy = speed * Math.sin(angle);
+    }
+
+    function drawNet(){
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.25)';
+      ctx.setLineDash([10, 12]);
+      ctx.beginPath();
+      ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawPaddle(p){
+      const grd = ctx.createLinearGradient(0, p.y, 0, p.y + PADDLE_H);
+      grd.addColorStop(0, 'rgba(34,211,238,.9)');
+      grd.addColorStop(1, 'rgba(167,139,250,.9)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(p.x, p.y, PADDLE_W, PADDLE_H);
+    }
+
+    function drawBall(){
+      const grd = ctx.createRadialGradient(state.ball.x, state.ball.y, 2, state.ball.x, state.ball.y, BALL_R);
+      grd.addColorStop(0, '#fff');
+      grd.addColorStop(1, 'rgba(255,255,255,.1)');
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.arc(state.ball.x, state.ball.y, BALL_R, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    function render(){
+      ctx.clearRect(0,0,W,H);
+
+      // Arena background grid
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,.03)';
+      for(let x=0; x<W; x+=40){ ctx.fillRect(x, 0, 1, H); }
+      for(let y=0; y<H; y+=40){ ctx.fillRect(0, y, W, 1); }
+      ctx.restore();
+
+      drawNet();
+      drawPaddle(state.p1); drawPaddle(state.p2);
+      drawBall();
+    }
+
+    function update(dt){
+      // Move paddles
+      state.p1.y = clamp(state.p1.y + state.p1.vy * dt, 0, H - PADDLE_H);
+      state.p2.y = clamp(state.p2.y + state.p2.vy * dt, 0, H - PADDLE_H);
+
+      // CPU AI follows ball with reaction delay
+      if(state.mode === 'cpu'){
+        const aiMax = { easy: 220, normal: 300, hard: 420, insane: 580 }[state.difficulty];
+        const aiCenter = state.p2.y + PADDLE_H/2;
+        const target = state.ball.y + clamp(state.ball.vy*8, -60, 60); // lead the ball a little
+        const diff = target - aiCenter;
+        state.p2.vy = clamp(diff * 5, -aiMax, aiMax);
+      }
+
+      // Move ball
+      state.ball.x += state.ball.vx * dt;
+      state.ball.y += state.ball.vy * dt;
+
+      // Wall collisions
+      if(state.ball.y - BALL_R < 0){ state.ball.y = BALL_R; state.ball.vy *= -1; }
+      if(state.ball.y + BALL_R > H){ state.ball.y = H - BALL_R; state.ball.vy *= -1; }
+
+      // Paddle collisions
+      const collide = (p) => {
+        if(state.ball.x - BALL_R < p.x + PADDLE_W &&
+           state.ball.x + BALL_R > p.x &&
+           state.ball.y + BALL_R > p.y &&
+           state.ball.y - BALL_R < p.y + PADDLE_H){
+          // Where did the ball hit relative to paddle center
+          const rel = (state.ball.y - (p.y + PADDLE_H/2)) / (PADDLE_H/2);
+          const speed = Math.hypot(state.ball.vx, state.ball.vy);
+          const spin = p.vy * 0.02; // add spin from paddle movement
+          const angle = rel * 0.75; // max ~43°
+
+          const dir = (p === state.p1) ? 1 : -1;
+          const base = Math.max(5, speed * 1.03); // slight speed up per hit
+          state.ball.vx = dir * base * Math.cos(angle);
+          state.ball.vy = base * Math.sin(angle) + spin;
+
+          // Nudge ball outside paddle to prevent sticking
+          state.ball.x = (p === state.p1) ? p.x + PADDLE_W + BALL_R + 0.1 : p.x - BALL_R - 0.1;
+        }
+      };
+
+      collide(state.p1); collide(state.p2);
+
+      // Scoring
+      if(state.ball.x < -BALL_R){
+        state.p2.score++; s2El.textContent = state.p2.score;
+        checkWin(); resetBall(1);
+      }
+      if(state.ball.x > W + BALL_R){
+        state.p1.score++; s1El.textContent = state.p1.score;
+        checkWin(); resetBall(-1);
+      }
+    }
+
+    function checkWin(){
+      if(state.p1.score >= state.maxScore || state.p2.score >= state.maxScore){
+        state.running = false; state.paused = false;
+        const winner = state.p1.score > state.p2.score ? 'Player 1' : 'Player 2';
+        toast(`${winner} wins!`);
+      }
+    }
+
+    // Simple toast
+    let toastTimer;
+    function toast(msg){
+      clearTimeout(toastTimer);
+      let el = document.getElementById('toast');
+      if(!el){
+        el = document.createElement('div');
+        el.id = 'toast';
+        el.style.cssText = `
+          position: fixed; left: 50%; top: 18px; transform: translateX(-50%);
+          background: rgba(17,24,39,.9); border: 1px solid rgba(255,255,255,.2);
+          color: white; padding: 10px 14px; border-radius: 10px; z-index: 9999;
+          box-shadow: 0 10px 30px rgba(0,0,0,.35); font-weight: 600; letter-spacing:.3px;`;
+        document.body.appendChild(el);
+      }
+      el.textContent = msg; el.style.opacity = '1';
+      toastTimer = setTimeout(()=>{ el.style.opacity = '0'; }, 1800);
+    }
+
+    // Game loop
+    function loop(ts){
+      if(!state.running || state.paused){ state.lastTime = ts; render(); return requestAnimationFrame(loop); }
+      const dt = Math.min(32, ts - state.lastTime) / (1000/60); // normalize to ~60 fps units
+      state.lastTime = ts;
+      update(dt);
+      render();
+      requestAnimationFrame(loop);
+    }
+
+    // Controls
+    const keys = new Set();
+    window.addEventListener('keydown', (e)=>{
+      keys.add(e.key.toLowerCase());
+      if(e.code === 'Space'){ togglePause(); e.preventDefault(); }
+    });
+    window.addEventListener('keyup', (e)=>{ keys.delete(e.key.toLowerCase()); });
+
+    function handleInput(){
+      // Player 1: W/S
+      state.p1.vy = 0; state.p2.vy = 0;
+      if(keys.has('w')) state.p1.vy -= 420;
+      if(keys.has('s')) state.p1.vy += 420;
+      // Player 2 (only in 2P): Up/Down
+      if(state.mode === 'p2'){
+        if(keys.has('arrowup')) state.p2.vy -= 420;
+        if(keys.has('arrowdown')) state.p2.vy += 420;
+      }
+      requestAnimationFrame(handleInput);
+    }
+
+    function resetGame(){
+      state.p1.score = 0; state.p2.score = 0; s1El.textContent = '0'; s2El.textContent = '0';
+      state.p1.y = H/2 - PADDLE_H/2; state.p2.y = H/2 - PADDLE_H/2;
+      resetBall();
+    }
+
+    function start(){
+      state.mode = modeSel.value;
+      state.difficulty = difficultySel.value;
+      state.maxScore = clamp(parseInt(maxScoreInput.value,10)||7, 1, 21);
+      resetGame();
+      state.running = true; state.paused = false;
+      toast('Game started');
+    }
+
+    function togglePause(){
+      if(!state.running) return;
+      state.paused = !state.paused;
+      toast(state.paused ? 'Paused' : 'Resumed');
+    }
+
+    function resetAll(){
+      state.running = false; state.paused = false; resetGame(); render();
+      toast('Reset');
+    }
+
+    // UI events
+    startBtn.addEventListener('click', start);
+    pauseBtn.addEventListener('click', togglePause);
+    resetBtn.addEventListener('click', resetAll);
+    difficultySel.addEventListener('change', ()=>{ state.difficulty = difficultySel.value; });
+    modeSel.addEventListener('change', ()=>{ state.mode = modeSel.value; });
+
+    // Initialize
+    resetGame();
+    requestAnimationFrame(loop);
+    handleInput();
+  </script>
+</body>
+</html>
+<!DOCTYPE html>
 <html lang=en>
 <head>
   <meta charset=UTF-8 />
