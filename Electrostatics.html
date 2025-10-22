@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Electrostatics Lab — Interactive E, V, F, U</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --card: #0b1022;
+      --grid: rgba(255,255,255,.06);
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22d3ee;
+      --accent2: #a78bfa;
+      --danger: #ef4444;
+      --ok: #22c55e;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text);
+      background: radial-gradient(1200px 800px at 10% 10%, #111827, var(--bg));
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      overflow: hidden;
+    }
+
+    header, footer {
+      padding: 12px 20px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    footer { border-top: 1px solid rgba(255,255,255,0.06); border-bottom: none; font-size: 12px; color: var(--muted); }
+
+    header h1 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+    .sub { font-size: 12px; color: var(--muted); }
+
+    .wrap {
+      display: grid;
+      grid-template-columns: 310px 1fr 320px;
+      gap: 16px;
+      padding: 16px;
+      height: 100%;
+      min-height: 0;
+    }
+
+    @media (max-width: 1100px) {
+      .wrap { grid-template-columns: 1fr; overflow: auto; }
+      body { overflow: auto; }
+      canvas { height: 60vh; }
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+    .row .note { font-size: 12px; color: var(--muted); }
+
+    .group { display: grid; gap: 8px; }
+    .group h3 { margin: 6px 0; font-size: 14px; color: var(--muted); letter-spacing: .3px; }
+
+    .btn {
+      appearance: none;
+      border: 1px solid rgba(255,255,255,.15);
+      background: linear-gradient(180deg, rgba(34,211,238,.15), rgba(167,139,250,.08));
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .06s ease, box-shadow .2s ease, background .2s ease, opacity .2s ease;
+      box-shadow: 0 6px 16px rgba(34,211,238,.15);
+      font-size: 13px;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .btn.danger { background: linear-gradient(180deg, rgba(239,68,68,.18), rgba(239,68,68,.08)); border-color: rgba(239,68,68,.45); }
+    .btn.ok { background: linear-gradient(180deg, rgba(34,197,94,.18), rgba(34,197,94,.08)); border-color: rgba(34,197,94,.45); }
+
+    .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+
+    input[type="number"], select, input[type="range"] {
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.12);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 8px;
+      outline: none;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      background: radial-gradient(800px 600px at 80% 20%, rgba(34,211,238,.08), transparent),
+                  radial-gradient(800px 600px at 20% 80%, rgba(167,139,250,.08), transparent),
+                  #0b1022;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    .legend { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+    .kbd { padding: 2px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08); }
+
+    .stat { display: grid; grid-template-columns: 1fr auto; gap: 6px; font-size: 13px; }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+    a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚡ Electrostatics Lab — Interactive Visualizer</h1>
+    <div class="sub">Explore electric field E, potential V, force F, and potential energy U with draggable point charges.</div>
+  </header>
+
+  <main class="wrap">
+    <!-- Left Controls -->
+    <aside class="panel">
+      <div class="group">
+        <h3>Charges</h3>
+        <div class="row">
+          <button id="addPos" class="btn ok">+ Add +1 µC</button>
+          <div class="note">Click to add a positive charge</div>
+        </div>
+        <div class="row">
+          <button id="addNeg" class="btn danger">+ Add −1 µC</button>
+          <div class="note">Click to add a negative charge</div>
+        </div>
+        <div class="row">
+          <button id="clear" class="btn danger">Clear All</button>
+          <div class="note">Remove all charges</div>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3>Presets</h3>
+        <div class="row"><button id="dipole" class="btn">Dipole</button><div class="note">+q and −q</div></div>
+        <div class="row"><button id="quadrupole" class="btn">Quadrupole</button><div class="note">+ − − +</div></div>
+        <div class="row"><button id="line3" class="btn">Line of 3</button><div class="note">+ + +</div></div>
+      </div>
+
+      <div class="group">
+        <h3>Display</h3>
+        <label class="toggle"><input type="checkbox" id="showVectors" checked /> Field vectors E</label>
+        <label class="toggle"><input type="checkbox" id="showHeat" /> Potential heatmap V</label>
+        <label class="toggle"><input type="checkbox" id="showLines" /> Field lines</label>
+        <div class="row">
+          <label>Vector density</label>
+          <input type="range" id="vecDensity" min="20" max="80" value="45" />
+        </div>
+        <div class="row">
+          <label>Arrow scale</label>
+          <input type="range" id="arrowScale" min="0.4" max="2.0" step="0.1" value="1.0" />
+        </div>
+      </div>
+
+      <div class="legend">
+        <div>Drag charges with the mouse. Hold <span class="kbd">Shift</span> while dragging to duplicate.</div>
+        <div>Click empty space to place a selected charge.</div>
+      </div>
+    </aside>
+
+    <!-- Canvas -->
+    <section class="canvas-wrap">
+      <canvas id="canvas" width="1100" height="720" aria-label="Electrostatics simulation"></canvas>
+    </section>
+
+    <!-- Right Info -->
+    <aside class="panel">
+      <div class="group">
+        <h3>Probe (at cursor)</h3>
+        <div class="stat"><div>E magnitude</div><div class="mono" id="E_mag">—</div></div>
+        <div class="stat"><div>E direction</div><div class="mono" id="E_dir">—</div></div>
+        <div class="stat"><div>Potential V</div><div class="mono" id="V">—</div></div>
+        <div class="stat"><div>Force on 1 nC</div><div class="mono" id="F">—</div></div>
+        <div class="stat"><div>Potential energy (1 nC)</div><div class="mono" id="U">—</div></div>
+      </div>
+
+      <div class="group">
+        <h3>Selected charge</h3>
+        <div class="stat"><div>q (µC)</div><div><input id="selQ" type="number" step="0.1" value="0" style="width:90px;" /></div></div>
+        <div class="stat"><div>Lock position</div><div><input id="selLock" type="checkbox" /></div></div>
+        <div class="row"><button id="selDelete" class="btn danger">Delete</button><div class="note">Remove selected</div></div>
+      </div>
+
+      <div class="group">
+        <h3>Equations</h3>
+        <div class="note">k = 1/(4πϵ₀) ≈ 8.9875×10⁹ N·m²/C²</div>
+        <div class="note">E(r) = Σ k qᵢ (r − rᵢ) / |r − rᵢ|³</div>
+        <div class="note">V(r) = Σ k qᵢ / |r − rᵢ|</div>
+        <div class="note">F = q E, U = q V</div>
+        <div class="note">Scale: 1 px ≈ 1 cm</div>
+      </div>
+
+      <div class="group">
+        <h3>Resources</h3>
+        <div class="note">Try superposition: start with a dipole then add a third charge and observe changes.</div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    © 2025 • Educational tool for Physics II — Electrostatics
+  </footer>
+
+  <script>
+    // Constants and scale
+    const k = 8.9875517923e9; // N m^2 / C^2
+    const meterPerPixel = 0.01; // 1 px = 1 cm
+    const soften = 0.01; // meters softening to avoid singularities (~1 cm)
+
+    // State
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const charges = []; // {id,x,y,qMicroC,locked}
+    let selectedId = null;
+
+    // UI Elements
+    const addPosBtn = document.getElementById('addPos');
+    const addNegBtn = document.getElementById('addNeg');
+    const clearBtn = document.getElementById('clear');
+    const dipoleBtn = document.getElementById('dipole');
+    const quadrupoleBtn = document.getElementById('quadrupole');
+    const line3Btn = document.getElementById('line3');
+
+    const showVectorsEl = document.getElementById('showVectors');
+    const showHeatEl = document.getElementById('showHeat');
+    const showLinesEl = document.getElementById('showLines');
+    const vecDensityEl = document.getElementById('vecDensity');
+    const arrowScaleEl = document.getElementById('arrowScale');
+
+    const E_magEl = document.getElementById('E_mag');
+    const E_dirEl = document.getElementById('E_dir');
+    const VEl = document.getElementById('V');
+    const FEl = document.getElementById('F');
+    const UEl = document.getElementById('U');
+
+    const selQEl = document.getElementById('selQ');
+    const selLockEl = document.getElementById('selLock');
+    const selDeleteEl = document.getElementById('selDelete');
+
+    // Helpers
+    const fmt = (x, unit) => {
+      if (!isFinite(x)) return '—';
+      const ax = Math.abs(x);
+      let v = x, p = '';
+      if (ax >= 1e9) { v = x/1e9; p = 'G'; }
+      else if (ax >= 1e6) { v = x/1e6; p = 'M'; }
+      else if (ax >= 1e3) { v = x/1e3; p = 'k'; }
+      else if (ax < 1e-9) { v = x*1e12; p = 'p'; }
+      else if (ax < 1e-6) { v = x*1e9; p = 'n'; }
+      else if (ax < 1e-3) { v = x*1e6; p = 'µ'; }
+      else if (ax < 1) { v = x*1e3; p = 'm'; }
+      return v.toFixed(3).replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1') + ' ' + p + unit;
+    };
+
+    function toMeters(dxPx, dyPx){
+      return { dx: dxPx * meterPerPixel, dy: dyPx * meterPerPixel };
+    }
+
+    function E_and_V_at(x, y){
+      // x,y in pixels canvas coordinates
+      let Ex = 0, Ey = 0, V = 0;
+      for (const c of charges){
+        const dxPx = x - c.x;
+        const dyPx = y - c.y;
+        const {dx, dy} = toMeters(dxPx, dyPx);
+        const r2 = dx*dx + dy*dy + soften*soften;
+        const r = Math.sqrt(r2);
+        const qC = c.qMicroC * 1e-6; // C
+        const coeff = k * qC / (r2 * r); // k q / r^3
+        Ex += coeff * dx;
+        Ey += coeff * dy;
+        V += k * qC / r; // k q / r
+      }
+      return {Ex, Ey, V};
+    }
+
+    function drawGrid(){
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.05)';
+      ctx.lineWidth = 1;
+      for (let x=0; x<canvas.width; x+=40){
+        ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,canvas.height); ctx.stroke();
+      }
+      for (let y=0; y<canvas.height; y+=40){
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(canvas.width,y); ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawCharges(){
+      for (const c of charges){
+        const r = 14;
+        // halo
+        ctx.beginPath();
+        const grad = ctx.createRadialGradient(c.x, c.y, 2, c.x, c.y, r*2.5);
+        grad.addColorStop(0, c.qMicroC >= 0 ? 'rgba(34,211,238,.35)' : 'rgba(239,68,68,.35)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = grad;
+        ctx.arc(c.x, c.y, r*2.5, 0, Math.PI*2); ctx.fill();
+
+        // body
+        ctx.beginPath();
+        ctx.fillStyle = c.qMicroC >= 0 ? '#22d3ee' : '#ef4444';
+        ctx.strokeStyle = 'rgba(255,255,255,.8)';
+        ctx.lineWidth = 1.5;
+        ctx.arc(c.x, c.y, r, 0, Math.PI*2);
+        ctx.fill(); ctx.stroke();
+
+        // symbol
+        ctx.fillStyle = '#0b1022';
+        ctx.font = 'bold 14px ui-sans-serif, system-ui, -apple-system';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(c.qMicroC >= 0 ? '+' : '−', c.x, c.y);
+
+        // selection ring
+        if (c.id === selectedId){
+          ctx.beginPath();
+          ctx.strokeStyle = '#fff'; ctx.setLineDash([4,4]);
+          ctx.arc(c.x, c.y, r+5, 0, Math.PI*2);
+          ctx.stroke(); ctx.setLineDash([]);
+        }
+      }
+    }
+
+    function drawVector(x, y, Ex, Ey){
+      const scale = parseFloat(arrowScaleEl.value);
+      // draw arrow based on E
+      const mag = Math.hypot(Ex, Ey);
+      if (mag <= 0) return;
+      const nx = Ex / mag, ny = Ey / mag;
+      const len = Math.min(22, 4 + 8 * Math.log10(1 + mag*1e6)) * scale; // perceptual scaling
+      const x2 = x + nx * len;
+      const y2 = y + ny * len;
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      ctx.lineWidth = 1;
+      ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+      // head
+      const head = 4 * scale;
+      const tx = -ny, ty = nx;
+      ctx.beginPath(); ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - nx*6 + tx*head, y2 - ny*6 + ty*head);
+      ctx.lineTo(x2 - nx*6 - tx*head, y2 - ny*6 - ty*head);
+      ctx.closePath(); ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.fill();
+    }
+
+    function drawFieldVectors(){
+      const step = parseInt(vecDensityEl.value, 10);
+      for (let y = step/2; y < canvas.height; y += step){
+        for (let x = step/2; x < canvas.width; x += step){
+          const {Ex, Ey} = E_and_V_at(x, y);
+          drawVector(x, y, Ex, Ey);
+        }
+      }
+    }
+
+    // Heatmap (potential)
+    let heatCache = null, heatDirty = true;
+    function computeHeatmap(){
+      const w = 220, h = Math.round(w * canvas.height / canvas.width);
+      const off = document.createElement('canvas'); off.width = w; off.height = h;
+      const ictx = off.getContext('2d');
+      const img = ictx.createImageData(w, h);
+      const Vs = new Float32Array(w*h);
+      let i=0, vmin=Infinity, vmax=-Infinity;
+      for (let j=0; j<h; j++){
+        for (let i2=0; i2<w; i2++){
+          const x = (i2 + 0.5) * canvas.width / w;
+          const y = (j + 0.5) * canvas.height / h;
+          const {V} = E_and_V_at(x, y);
+          Vs[i] = V; vmin = Math.min(vmin, V); vmax = Math.max(vmax, V); i++;
+        }
+      }
+      // Normalize around 0 to show positive/negative potentials distinctly
+      const a = Math.max(Math.abs(vmin), Math.abs(vmax)) || 1;
+      i=0; for (let j=0; j<h; j++){
+        for (let i2=0; i2<w; i2++){
+          const V = Vs[i++];
+          const t = Math.max(-1, Math.min(1, V / a)); // [-1,1]
+          const {r,g,b} = divergingColormap(t);
+          const k = (j*w + i2) * 4;
+          img.data[k] = r; img.data[k+1] = g; img.data[k+2] = b; img.data[k+3] = 120; // alpha
+        }
+      }
+      ictx.putImageData(img, 0, 0);
+      heatCache = off; heatDirty = false;
+    }
+
+    function divergingColormap(t){
+      // t in [-1,1], blue -> white -> red
+      const x = (t + 1)/2; // [0,1]
+      const r = Math.round(255 * x);
+      const b = Math.round(255 * (1 - x));
+      const g = Math.round(255 * (0.9 - Math.abs(t) * 0.9));
+      return {r, g, b};
+    }
+
+    function drawHeat(){
+      if (heatDirty) computeHeatmap();
+      ctx.save();
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(heatCache, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    }
+
+    // Field lines via streamline integration
+    function drawFieldLines(){
+      const seedsPerCharge = 12;
+      const maxSteps = 1500;
+      const stepLen = 6; // px per step
+      ctx.save();
+      ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.6)';
+      for (const c of charges){
+        const sign = Math.sign(c.qMicroC) || 1;
+        const r = 16;
+        for (let kSeed=0; kSeed<seedsPerCharge; kSeed++){
+          const ang = (kSeed / seedsPerCharge) * Math.PI * 2;
+          let x = c.x + Math.cos(ang)*r;
+          let y = c.y + Math.sin(ang)*r;
+          ctx.beginPath(); ctx.moveTo(x, y);
+          for (let s=0; s<maxSteps; s++){
+            const {Ex, Ey} = E_and_V_at(x, y);
+            let mag = Math.hypot(Ex, Ey);
+            if (mag < 1e-6) break;
+            const nx = Ex / mag * sign; const ny = Ey / mag * sign;
+            x += nx * stepLen; y += ny * stepLen;
+            if (x<0||y<0||x>canvas.width||y>canvas.height) break;
+            // Stop if near an opposite-sign charge
+            let nearOpp = false;
+            for (const c2 of charges){
+              const dx = x - c2.x, dy = y - c2.y;
+              if (Math.hypot(dx,dy) < 10 && Math.sign(c2.qMicroC) !== sign){ nearOpp = true; break; }
+            }
+            ctx.lineTo(x, y);
+            if (nearOpp) break;
+          }
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    // Interaction
+    let draggingId = null; let dragOffset = {x:0,y:0}; let isDup = false;
+    function pickCharge(x, y){
+      for (let i=charges.length-1; i>=0; i--){
+        const c = charges[i];
+        if (Math.hypot(x-c.x, y-c.y) <= 16) return c.id;
+      }
+      return null;
+    }
+
+    canvas.addEventListener('mousedown', (e)=>{
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (canvas.width/rect.width);
+      const y = (e.clientY - rect.top) * (canvas.height/rect.height);
+      const id = pickCharge(x, y);
+      if (id !== null){
+        const c = charges.find(c=>c.id===id);
+        if (c && c.locked) return;
+        draggingId = id; selectedId = id; isDup = e.shiftKey;
+        dragOffset.x = x - c.x; dragOffset.y = y - c.y;
+      } else {
+        // Place a copy of selected charge at click
+        const cSel = charges.find(c=>c.id===selectedId);
+        if (cSel){ addCharge(x, y, cSel.qMicroC); }
+      }
+      syncSelectedPanel();
+    });
+
+    canvas.addEventListener('mousemove', (e)=>{
+      const rect = canvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * (canvas.width/rect.width);
+      const y = (e.clientY - rect.top) * (canvas.height/rect.height);
+      // Probe values
+      const {Ex, Ey, V} = E_and_V_at(x, y);
+      const Emag = Math.hypot(Ex, Ey);
+      const angle = Math.atan2(Ey, Ex) * 180/Math.PI;
+      E_magEl.textContent = fmt(Emag, 'N/C');
+      E_dirEl.textContent = isFinite(angle) ? angle.toFixed(1)+'°' : '—';
+      VEl.textContent = fmt(V, 'V');
+      const qProbe = 1e-9; // 1 nC
+      FEl.textContent = fmt(Emag*qProbe, 'N');
+      UEl.textContent = fmt(V*qProbe, 'J');
+
+      if (draggingId !== null){
+        const idx = charges.findIndex(c=>c.id===draggingId);
+        if (idx>=0){
+          if (isDup){ // duplicate once at drag start
+            const c0 = charges[idx];
+            const dup = addCharge(c0.x, c0.y, c0.qMicroC);
+            draggingId = dup.id; isDup = false;
+          }
+          const c = charges.find(c=>c.id===draggingId);
+          if (c && !c.locked){ c.x = x - dragOffset.x; c.y = y - dragOffset.y; heatDirty = true; }
+        }
+      }
+    });
+
+    window.addEventListener('mouseup', ()=>{ draggingId = null; });
+
+    function addCharge(x, y, qMicroC){
+      const id = Math.random().toString(36).slice(2);
+      charges.push({id, x, y, qMicroC, locked:false});
+      selectedId = id; heatDirty = true; return {id};
+    }
+
+    function clearCharges(){ charges.length = 0; selectedId = null; heatDirty = true; }
+
+    function center(){ return {x: canvas.width/2, y: canvas.height/2}; }
+
+    // Presets
+    function presetDipole(){
+      clearCharges(); const c = center();
+      addCharge(c.x-80, c.y, +1.0); addCharge(c.x+80, c.y, -1.0);
+    }
+    function presetQuadrupole(){
+      clearCharges(); const c = center(); const d=90;
+      addCharge(c.x-d, c.y-d, +1.0); addCharge(c.x+d, c.y-d, -1.0);
+      addCharge(c.x-d, c.y+d, -1.0); addCharge(c.x+d, c.y+d, +1.0);
+    }
+    function presetLine3(){
+      clearCharges(); const c = center(); const d=90;
+      addCharge(c.x-d, c.y, +1.0); addCharge(c.x, c.y, +1.0); addCharge(c.x+d, c.y, +1.0);
+    }
+
+    // Bind UI
+    addPosBtn.addEventListener('click', ()=>{ const c=center(); addCharge(c.x+ (Math.random()*60-30), c.y+(Math.random()*60-30), +1.0); });
+    addNegBtn.addEventListener('click', ()=>{ const c=center(); addCharge(c.x+ (Math.random()*60-30), c.y+(Math.random()*60-30), -1.0); });
+    clearBtn.addEventListener('click', clearCharges);
+    dipoleBtn.addEventListener('click', presetDipole);
+    quadrupoleBtn.addEventListener('click', presetQuadrupole);
+    line3Btn.addEventListener('click', presetLine3);
+    showHeatEl.addEventListener('change', ()=>{ heatDirty = true; });
+    vecDensityEl.addEventListener('input', ()=>{});
+    arrowScaleEl.addEventListener('input', ()=>{});
+
+    function syncSelectedPanel(){
+      const c = charges.find(c=>c.id===selectedId);
+      if (!c){ selQEl.value = 0; selLockEl.checked = false; return; }
+      selQEl.value = c.qMicroC.toString(); selLockEl.checked = !!c.locked;
+    }
+    selQEl.addEventListener('change', ()=>{ const c = charges.find(c=>c.id===selectedId); if (c){ c.qMicroC = parseFloat(selQEl.value)||0; heatDirty = true; } });
+    selLockEl.addEventListener('change', ()=>{ const c = charges.find(c=>c.id===selectedId); if (c){ c.locked = selLockEl.checked; } });
+    selDeleteEl.addEventListener('click', ()=>{ const i = charges.findIndex(c=>c.id===selectedId); if (i>=0){ charges.splice(i,1); selectedId=null; heatDirty = true; syncSelectedPanel(); } });
+
+    // Render loop
+    function render(){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      if (showHeatEl.checked){ drawHeat(); }
+      drawGrid();
+      if (showVectorsEl.checked){ drawFieldVectors(); }
+      if (showLinesEl.checked){ drawFieldLines(); }
+      drawCharges();
+      requestAnimationFrame(render);
+    }
+
+    // Init
+    presetDipole();
+    syncSelectedPanel();
+    render();
+  </script>
+</body>
+</html>
+
