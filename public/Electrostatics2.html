@@ -372,8 +372,10 @@
     showHeatEl.addEventListener('change',()=>{ heatDirty=true; });
     heatResEl.addEventListener('input',()=>{ heatDirty=true; });
     showVectorsEl.addEventListener('change',()=>{ 
-      storage.set('e2_showVectors', showVectorsEl.checked);
+      const val = !!showVectorsEl.checked;
+      storage.set('e2_showVectors', val);
       saveDefaultSettingsDebounced();
+      writeUserVectorPref(val).catch(()=>{});
     });
     displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; saveDefaultSettingsDebounced(); });
     showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); heatDirty=true; saveDefaultSettingsDebounced(); });
@@ -489,6 +491,16 @@
           heatRes: Number(heatResEl.value),
           updatedAt: Date.now()
         }, { merge: true });
+      } catch {}
+    }
+
+    // Store per-user vector preference (no UI required)
+    async function writeUserVectorPref(show){
+      if (!fb.db || !fb.uid) return;
+      try {
+        const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+        const ref = doc(fb.db, 'users', fb.uid, 'prefs', 'display');
+        await setDoc(ref, { showVectors: !!show, updatedAt: Date.now() }, { merge: true });
       } catch {}
     }
 
