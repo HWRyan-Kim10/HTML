@@ -74,6 +74,9 @@
       <div style="display:flex; gap:8px; align-items:center;">
         <button id="simulate" class="btn primary" title="Toggle electron flow and field lines">Simulate Flow</button>
         <button id="resetSim" class="btn" title="Stop and clear electrons">Reset</button>
+        <button id="saveCloud" class="btn" title="Save current scene and settings">Save</button>
+        <button id="loadCloud" class="btn" title="Load saved scene and settings">Load</button>
+        <span id="cloudStatus" class="note">Cloud: idle</span>
       </div>
     </div>
   </header>
@@ -177,6 +180,8 @@
     const dipoleBtn = document.getElementById('dipole');
     const simulateBtn = document.getElementById('simulate');
     const resetSimBtn = document.getElementById('resetSim');
+    const saveCloudBtn = document.getElementById('saveCloud');
+    const loadCloudBtn = document.getElementById('loadCloud');
     const showHeatEl = document.getElementById('showHeat');
     const heatResEl = document.getElementById('heatRes');
     const showVectorsEl = document.getElementById('showVectors');
@@ -186,6 +191,7 @@
     const consentBar = document.getElementById('cookie-consent');
     const consentAccept = document.getElementById('cookie-accept');
     const consentDecline = document.getElementById('cookie-decline');
+    const cloudStatusEl = document.getElementById('cloudStatus');
 
     // State
     const charges = []; // {id,x,y,qMicroC,locked}
@@ -357,7 +363,7 @@
       const {Ex,Ey,V}=E_and_V_at(x,y); E_magEl.textContent=fmt(Math.hypot(Ex,Ey),'N/C'); VEl.textContent=fmt(V,'V');
       if(draggingId){ const i=charges.findIndex(c=>c.id===draggingId); if(i>=0){ if(dupOnDrag){ const c0=charges[i]; const dup=addCharge(c0.x,c0.y,c0.qMicroC); draggingId=dup.id; dupOnDrag=false; } const c=charges.find(c=>c.id===draggingId); c.x=x-dragOffset.x; c.y=y-dragOffset.y; heatDirty=true; } }
     });
-    window.addEventListener('mouseup',()=>{ draggingId=null; scheduleAutoSave(); });
+    window.addEventListener('mouseup',()=>{ draggingId=null; });
 
     function addCharge(x,y,qMicroC){ const id=Math.random().toString(36).slice(2); charges.push({id,x,y,qMicroC,locked:false}); selectedId=id; heatDirty=true; return {id}; }
     function clearCharges(){ charges.length=0; selectedId=null; heatDirty=true; }
@@ -367,18 +373,16 @@
     // UI bindings
     addPosBtn.addEventListener('click',()=>{ const c=center(); addCharge(c.x+(Math.random()*60-30), c.y+(Math.random()*60-30), +1.0); });
     addNegBtn.addEventListener('click',()=>{ const c=center(); addCharge(c.x+(Math.random()*60-30), c.y+(Math.random()*60-30), -1.0); });
-    clearBtn.addEventListener('click',()=>{ clearCharges(); heatDirty=true; scheduleAutoSave(); });
-    dipoleBtn.addEventListener('click',()=>{ presetDipole(); scheduleAutoSave(); });
+    clearBtn.addEventListener('click',()=>{ clearCharges(); heatDirty=true; });
+    dipoleBtn.addEventListener('click',()=>{ presetDipole(); });
     showHeatEl.addEventListener('change',()=>{ heatDirty=true; });
     heatResEl.addEventListener('input',()=>{ heatDirty=true; });
     showVectorsEl.addEventListener('change',()=>{ 
       const val = !!showVectorsEl.checked;
       storage.set('e2_showVectors', val);
-      saveDefaultSettingsDebounced();
-      writeUserVectorPref(val).catch(()=>{});
     });
-    displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; saveDefaultSettingsDebounced(); });
-    showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); heatDirty=true; saveDefaultSettingsDebounced(); });
+    displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; });
+    showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); heatDirty=true; });
 
     // Consent banner (still used for cookies, but not gating Firestore writes)
     const consentKey = 'e2_cookie_consent';
@@ -403,24 +407,72 @@
 
     async function maybeInitFirebase(){
       try {
-        const cfg = window.FIREBASE_CONFIG; // Provide via global on your hosting or insert snippet
-        if (!cfg) { cloudStatusEl.textContent = 'Cloud: not configured'; return; }
+        const cfg = window.FIREBASE_CONFIG; // Provided via /firebase-config.js
+        if (!cfg) { if (cloudStatusEl) cloudStatusEl.textContent = 'Cloud: not configured'; return; }
         const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js');
-        const { getFirestore, collection, addDoc, getDocs, query, orderBy, limit } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
-        const { getAuth, signInAnonymously, onAuthStateChanged } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js');
+        const { getFirestore } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+        const { getAuth } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js');
         fb.app = initializeApp(cfg);
         fb.db = getFirestore(fb.app);
         fb.auth = getAuth(fb.app);
-        await new Promise((res, rej)=>{
-          onAuthStateChanged(fb.auth, async (user)=>{
-            if (user) { fb.uid = user.uid; res(); }
-            else { try { await signInAnonymously(fb.auth); } catch(e){ rej(e); } }
-          });
-        });
-        // Load default settings for all users
-        await loadDefaultSettings();
+        if (cloudStatusEl) cloudStatusEl.textContent = 'Cloud: configured';
       } catch (e) {
-        // ignore
+        if (cloudStatusEl) cloudStatusEl.textContent = 'Cloud: init failed';
+      }
+    }
+
+    async function ensureSignedIn(){
+      if (!fb.auth) await maybeInitFirebase();
+      if (!fb.auth) throw new Error('Firebase not initialized');
+      const { signInAnonymously } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js');
+      if (fb.auth.currentUser) { fb.uid = fb.auth.currentUser.uid; return; }
+      const cred = await signInAnonymously(fb.auth);
+      fb.uid = (cred && cred.user && cred.user.uid) ? cred.user.uid : (fb.auth.currentUser ? fb.auth.currentUser.uid : null);
+    }
+
+    async function saveScene(){
+      const payload = currentPresetPayload();
+      try {
+        if (fb.db) {
+          await ensureSignedIn();
+          const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+          const ref = doc(fb.db, 'users', fb.uid, 'electro_sessions', 'manual');
+          await setDoc(ref, { ...payload, updatedAt: Date.now() }, { merge: true });
+          if (cloudStatusEl) cloudStatusEl.textContent = 'Cloud: saved ✔';
+          return;
+        }
+        throw new Error('no-db');
+      } catch (e) {
+        storage.set('e2_last_preset', payload);
+        if (cloudStatusEl) cloudStatusEl.textContent = 'Saved locally';
+      }
+    }
+
+    async function loadScene(){
+      try {
+        if (fb.db) {
+          await ensureSignedIn();
+          const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+          const ref = doc(fb.db, 'users', fb.uid, 'electro_sessions', 'manual');
+          const snap = await getDoc(ref);
+          if (snap.exists()){
+            applyPresetPayload(snap.data());
+            if (cloudStatusEl) cloudStatusEl.textContent = 'Cloud: loaded ✔';
+            heatDirty = true;
+            return;
+          }
+          throw new Error('no-cloud-doc');
+        }
+        throw new Error('no-db');
+      } catch (e) {
+        const local = storage.get('e2_last_preset', null);
+        if (local) {
+          applyPresetPayload(local);
+          if (cloudStatusEl) cloudStatusEl.textContent = 'Loaded from local';
+          heatDirty = true;
+        } else {
+          if (cloudStatusEl) cloudStatusEl.textContent = 'Nothing to load';
+        }
       }
     }
 
@@ -494,20 +546,32 @@
       } catch {}
     }
 
-    // Store per-user vector preference (no UI required)
-    async function writeUserVectorPref(show){
-      if (!fb.db || !fb.uid) return;
+    // --- Super basic collection write/read for vector pref ---
+    async function basicWriteVectorPref(show){
+      if (!fb.db) return;
       try {
-        const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
-        const ref = doc(fb.db, 'users', fb.uid, 'prefs', 'display');
-        await setDoc(ref, { showVectors: !!show, updatedAt: Date.now() }, { merge: true });
+        const { collection, addDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+        await addDoc(collection(fb.db, 'vector_prefs'), { showVectors: !!show, ts: Date.now() });
+      } catch {}
+    }
+    async function basicLoadVectorPref(){
+      if (!fb.db) return;
+      try {
+        const { collection, getDocs, query, orderBy, limit } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+        const qs = await getDocs(query(collection(fb.db, 'vector_prefs'), orderBy('ts', 'desc'), limit(1)));
+        if (!qs.empty) {
+          const data = qs.docs[0].data();
+          if (typeof data.showVectors === 'boolean') {
+            showVectorsEl.checked = data.showVectors;
+            storage.set('e2_showVectors', data.showVectors);
+          }
+        }
       } catch {}
     }
 
     // -------- Auto-save current scene to a fixed doc --------
     let autosaveTimer = null;
     function scheduleAutoSave(){
-      if (!cloudEnableEl?.checked) return;
       if (autosaveTimer) cancelAnimationFrame(autosaveTimer);
       autosaveTimer = requestAnimationFrame(()=>{ setTimeout(()=>{ cloudAutoSave().catch(()=>{}); }, 600); });
     }
@@ -549,6 +613,10 @@
     render();
     maybeShowConsent();
     maybeInitFirebase();
+
+    // Manual save/load only on user action
+    saveCloudBtn?.addEventListener('click', ()=>{ saveScene().catch(()=>{ if (cloudStatusEl) cloudStatusEl.textContent = 'Save failed'; }); });
+    loadCloudBtn?.addEventListener('click', ()=>{ loadScene().catch(()=>{ if (cloudStatusEl) cloudStatusEl.textContent = 'Load failed'; }); });
   </script>
 </body>
 </html>
