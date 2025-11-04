@@ -383,7 +383,11 @@
     dipoleBtn.addEventListener('click',presetDipole);
     showHeatEl.addEventListener('change',()=>{ heatDirty=true; });
     heatResEl.addEventListener('input',()=>{ heatDirty=true; });
-    showVectorsEl.addEventListener('change',()=>{ storage.set('e2_showVectors', showVectorsEl.checked); });
+    showVectorsEl.addEventListener('change',()=>{ 
+      storage.set('e2_showVectors', showVectorsEl.checked);
+      // Also persist to Firestore collection if enabled/allowed
+      cloudWriteVectorPref(showVectorsEl.checked).catch(()=>{});
+    });
     displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; });
     showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); heatDirty=true; });
 
@@ -496,7 +500,35 @@
       storage.set('e2_cloud_enabled', on);
       savePresetBtn.disabled = !on || !fb.db; loadLatestBtn.disabled = !on || !fb.db;
       cloudStatusEl.textContent = on ? 'Cloud: enabled' : 'Cloud: disabled';
+      if (on) { cloudLoadLatestVectorPref().catch(()=>{}); }
     });
+
+    // Write vector preference to collection `users/{uid}/vector_prefs`
+    async function cloudWriteVectorPref(show){
+      if (!cloudGuard()) return;
+      try {
+        const { collection, addDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+        const col = collection(fb.db, 'users', fb.uid, 'vector_prefs');
+        await addDoc(col, { showVectors: !!show, createdAt: Date.now() });
+        cloudStatusEl.textContent = 'Cloud: vector pref saved ✔';
+      } catch (_) { /* ignore UI noise */ }
+    }
+
+    // Load latest vector preference
+    async function cloudLoadLatestVectorPref(){
+      if (!cloudGuard()) return;
+      try {
+        const { collection, getDocs, query, orderBy, limit } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+        const col = collection(fb.db, 'users', fb.uid, 'vector_prefs');
+        const qs = await getDocs(query(col, orderBy('createdAt', 'desc'), limit(1)));
+        if (qs.empty) return;
+        const data = qs.docs[0].data();
+        if (typeof data.showVectors === 'boolean') {
+          showVectorsEl.checked = data.showVectors;
+          storage.set('e2_showVectors', data.showVectors);
+        }
+      } catch (_) { /* ignore */ }
+    }
 
     // Render
     function render(){
