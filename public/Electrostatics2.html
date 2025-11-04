@@ -100,15 +100,7 @@
         <div class="row"><label>Display range (±V)</label><input id="displayRangeV2" type="number" min="2" step="2" value="40" style="width:90px;" /></div>
       </div>
 
-      <div class="group">
-        <h3>Cloud Sync</h3>
-        <div class="note">Optionally save/load presets to the cloud (Firestore). Requires consent.</div>
-        <label class="toggle"><input type="checkbox" id="cloudEnable" /> Enable cloud sync</label>
-        <div class="row"><label>Preset name</label><input id="presetName" type="text" placeholder="e.g., Dipole-1" style="width:140px;" /></div>
-        <div class="row"><button id="savePreset" class="btn" disabled>Save preset</button><div class="note">Saves charges + display</div></div>
-        <div class="row"><button id="loadLatest" class="btn" disabled>Load latest</button><div class="note">Loads your latest preset</div></div>
-        <div class="note" id="cloudStatus" style="color:#64748b;">Cloud: disabled</div>
-      </div>
+      
 
       <div class="group">
         <h3>Interaction</h3>
@@ -191,11 +183,6 @@
     const displayRangeEl2 = document.getElementById('displayRangeV2');
     const E_magEl = document.getElementById('E_mag');
     const VEl = document.getElementById('V');
-    const cloudEnableEl = document.getElementById('cloudEnable');
-    const presetNameEl = document.getElementById('presetName');
-    const savePresetBtn = document.getElementById('savePreset');
-    const loadLatestBtn = document.getElementById('loadLatest');
-    const cloudStatusEl = document.getElementById('cloudStatus');
     const consentBar = document.getElementById('cookie-consent');
     const consentAccept = document.getElementById('cookie-accept');
     const consentDecline = document.getElementById('cookie-decline');
@@ -370,7 +357,7 @@
       const {Ex,Ey,V}=E_and_V_at(x,y); E_magEl.textContent=fmt(Math.hypot(Ex,Ey),'N/C'); VEl.textContent=fmt(V,'V');
       if(draggingId){ const i=charges.findIndex(c=>c.id===draggingId); if(i>=0){ if(dupOnDrag){ const c0=charges[i]; const dup=addCharge(c0.x,c0.y,c0.qMicroC); draggingId=dup.id; dupOnDrag=false; } const c=charges.find(c=>c.id===draggingId); c.x=x-dragOffset.x; c.y=y-dragOffset.y; heatDirty=true; } }
     });
-    window.addEventListener('mouseup',()=>{ draggingId=null; });
+    window.addEventListener('mouseup',()=>{ draggingId=null; scheduleAutoSave(); });
 
     function addCharge(x,y,qMicroC){ const id=Math.random().toString(36).slice(2); charges.push({id,x,y,qMicroC,locked:false}); selectedId=id; heatDirty=true; return {id}; }
     function clearCharges(){ charges.length=0; selectedId=null; heatDirty=true; }
@@ -380,19 +367,18 @@
     // UI bindings
     addPosBtn.addEventListener('click',()=>{ const c=center(); addCharge(c.x+(Math.random()*60-30), c.y+(Math.random()*60-30), +1.0); });
     addNegBtn.addEventListener('click',()=>{ const c=center(); addCharge(c.x+(Math.random()*60-30), c.y+(Math.random()*60-30), -1.0); });
-    clearBtn.addEventListener('click',()=>{ clearCharges(); heatDirty=true; });
-    dipoleBtn.addEventListener('click',presetDipole);
+    clearBtn.addEventListener('click',()=>{ clearCharges(); heatDirty=true; scheduleAutoSave(); });
+    dipoleBtn.addEventListener('click',()=>{ presetDipole(); scheduleAutoSave(); });
     showHeatEl.addEventListener('change',()=>{ heatDirty=true; });
     heatResEl.addEventListener('input',()=>{ heatDirty=true; });
     showVectorsEl.addEventListener('change',()=>{ 
       storage.set('e2_showVectors', showVectorsEl.checked);
-      // Also persist to Firestore collection if enabled/allowed
-      cloudWriteVectorPref(showVectorsEl.checked).catch(()=>{});
+      saveDefaultSettingsDebounced();
     });
-    displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; });
-    showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); heatDirty=true; });
+    displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; saveDefaultSettingsDebounced(); });
+    showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); heatDirty=true; saveDefaultSettingsDebounced(); });
 
-    // Consent banner
+    // Consent banner (still used for cookies, but not gating Firestore writes)
     const consentKey = 'e2_cookie_consent';
     function adjustForBanner(on){
       const wrap = document.querySelector('.wrap');
@@ -410,7 +396,7 @@
     simulateBtn.addEventListener('click',()=>{ simRunning=!simRunning; simulateBtn.textContent = simRunning? 'Stop' : 'Simulate Flow'; if(simRunning){ if(electrons.length===0) seedElectrons(); } });
     resetSimBtn.addEventListener('click',()=>{ simRunning=false; simulateBtn.textContent='Simulate Flow'; electrons.length=0; });
 
-    // -------- Firestore (optional) --------
+    // -------- Firestore (shared defaults) --------
     let fb = { app:null, db:null, auth:null, uid:null };
 
     async function maybeInitFirebase(){
@@ -429,34 +415,10 @@
             else { try { await signInAnonymously(fb.auth); } catch(e){ rej(e); } }
           });
         });
-        savePresetBtn.disabled = false; loadLatestBtn.disabled = false;
-        cloudStatusEl.textContent = 'Cloud: ready';
-        // Attach handlers
-        savePresetBtn.addEventListener('click', async ()=>{
-          if (!cloudGuard()) return;
-          try {
-            const payload = currentPresetPayload();
-            const name = (presetNameEl.value || 'Preset').slice(0, 60);
-            payload.name = name; payload.uid = fb.uid; payload.createdAt = Date.now();
-            const col = collection(fb.db, 'users', fb.uid, 'electro_presets');
-            await addDoc(col, payload);
-            cloudStatusEl.textContent = 'Cloud: saved ✔';
-          } catch (e) { cloudStatusEl.textContent = 'Cloud: save failed'; }
-        });
-        loadLatestBtn.addEventListener('click', async ()=>{
-          if (!cloudGuard()) return;
-          try {
-            const { collection, getDocs, query, orderBy, limit } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
-            const col = collection(fb.db, 'users', fb.uid, 'electro_presets');
-            const qs = await getDocs(query(col, orderBy('createdAt', 'desc'), limit(1)));
-            if (qs.empty) { cloudStatusEl.textContent = 'Cloud: no presets'; return; }
-            const data = qs.docs[0].data();
-            applyPresetPayload(data);
-            cloudStatusEl.textContent = 'Cloud: loaded ✔';
-          } catch (e) { cloudStatusEl.textContent = 'Cloud: load failed'; }
-        });
+        // Load default settings for all users
+        await loadDefaultSettings();
       } catch (e) {
-        cloudStatusEl.textContent = 'Cloud: unavailable';
+        // ignore
       }
     }
 
@@ -488,47 +450,65 @@
       }
     }
 
-    function cloudGuard(){
-      const consent = getCookie?.('e2_cookie_consent');
-      if (consent !== 'yes') { cloudStatusEl.textContent = 'Cloud: requires cookie consent'; return false; }
-      if (!cloudEnableEl.checked) { cloudStatusEl.textContent = 'Cloud: toggle enable first'; return false; }
-      if (!fb.db || !fb.uid) { cloudStatusEl.textContent = 'Cloud: not ready'; return false; }
-      return true;
-    }
-
-    cloudEnableEl?.addEventListener('change', ()=>{
-      const on = !!cloudEnableEl.checked;
-      storage.set('e2_cloud_enabled', on);
-      savePresetBtn.disabled = !on || !fb.db; loadLatestBtn.disabled = !on || !fb.db;
-      cloudStatusEl.textContent = on ? 'Cloud: enabled' : 'Cloud: disabled';
-      if (on) { cloudLoadLatestVectorPref().catch(()=>{}); }
-    });
-
-    // Write vector preference to collection `users/{uid}/vector_prefs`
-    async function cloudWriteVectorPref(show){
-      if (!cloudGuard()) return;
+    // Shared defaults doc: app_config/electro_defaults
+    async function loadDefaultSettings(){
+      if (!fb.db) return;
       try {
-        const { collection, addDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
-        const col = collection(fb.db, 'users', fb.uid, 'vector_prefs');
-        await addDoc(col, { showVectors: !!show, createdAt: Date.now() });
-        cloudStatusEl.textContent = 'Cloud: vector pref saved ✔';
-      } catch (_) { /* ignore UI noise */ }
-    }
-
-    // Load latest vector preference
-    async function cloudLoadLatestVectorPref(){
-      if (!cloudGuard()) return;
-      try {
-        const { collection, getDocs, query, orderBy, limit } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
-        const col = collection(fb.db, 'users', fb.uid, 'vector_prefs');
-        const qs = await getDocs(query(col, orderBy('createdAt', 'desc'), limit(1)));
-        if (qs.empty) return;
-        const data = qs.docs[0].data();
-        if (typeof data.showVectors === 'boolean') {
-          showVectorsEl.checked = data.showVectors;
-          storage.set('e2_showVectors', data.showVectors);
+        const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+        const ref = doc(fb.db, 'app_config', 'electro_defaults');
+        const snap = await getDoc(ref);
+        if (snap.exists()){
+          const d = snap.data();
+          if (typeof d.showHeat === 'boolean') showHeatEl.checked = d.showHeat;
+          if (typeof d.showVectors === 'boolean') showVectorsEl.checked = d.showVectors;
+          if (typeof d.rangeV === 'number') displayRangeEl2.value = d.rangeV;
+          if (typeof d.heatRes === 'number') heatResEl.value = d.heatRes;
+          storage.set('e2_showHeat', showHeatEl.checked);
+          storage.set('e2_showVectors', showVectorsEl.checked);
+          storage.set('e2_displayRangeV', Number(displayRangeEl2.value));
+          heatDirty = true;
         }
-      } catch (_) { /* ignore */ }
+      } catch {}
+    }
+
+    let saveDefaultsTimer = null;
+    function saveDefaultSettingsDebounced(){
+      if (!fb.db) return;
+      if (saveDefaultsTimer) clearTimeout(saveDefaultsTimer);
+      saveDefaultsTimer = setTimeout(()=>{ saveDefaultSettings().catch(()=>{}); }, 400);
+    }
+    async function saveDefaultSettings(){
+      if (!fb.db) return;
+      try {
+        const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+        const ref = doc(fb.db, 'app_config', 'electro_defaults');
+        await setDoc(ref, {
+          showHeat: !!showHeatEl.checked,
+          showVectors: !!showVectorsEl.checked,
+          rangeV: Number(displayRangeEl2.value),
+          heatRes: Number(heatResEl.value),
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch {}
+    }
+
+    // -------- Auto-save current scene to a fixed doc --------
+    let autosaveTimer = null;
+    function scheduleAutoSave(){
+      if (!cloudEnableEl?.checked) return;
+      if (autosaveTimer) cancelAnimationFrame(autosaveTimer);
+      autosaveTimer = requestAnimationFrame(()=>{ setTimeout(()=>{ cloudAutoSave().catch(()=>{}); }, 600); });
+    }
+
+    async function cloudAutoSave(){
+      if (!cloudGuard()) return;
+      try {
+        const payload = currentPresetPayload();
+        const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+        const ref = doc(fb.db, 'users', fb.uid, 'electro_sessions', 'auto');
+        await setDoc(ref, { ...payload, updatedAt: Date.now() }, { merge: true });
+        cloudStatusEl.textContent = 'Cloud: autosaved ✔';
+      } catch { /* ignore transient errors */ }
     }
 
     // Render
@@ -553,12 +533,6 @@
     })();
 
     // Init
-    (function restoreCloudToggle(){
-      const on = !!storage.get('e2_cloud_enabled', false);
-      if (cloudEnableEl) cloudEnableEl.checked = on;
-      savePresetBtn.disabled = !on; loadLatestBtn.disabled = !on;
-      cloudStatusEl.textContent = on ? 'Cloud: enabled' : 'Cloud: disabled';
-    })();
     presetDipole();
     render();
     maybeShowConsent();
