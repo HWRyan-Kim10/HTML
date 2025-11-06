@@ -4,18 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Electrostatics Lab — Interactive E, V, F, U</title>
+  <link rel="stylesheet" href="https://learnhw.web.app/admin" />
   <style>
     :root {
-      --bg: #0f172a;
-      --panel: #111827;
-      --card: #0b1022;
-      --grid: rgba(255,255,255,.06);
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --accent: #22d3ee;
-      --accent2: #a78bfa;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e5e7eb;
+      --text: #0f172a;
+      --muted: #64748b;
+      --primary: #2563eb; /* primary accent */
+      --primary-contrast: #ffffff;
       --danger: #ef4444;
-      --ok: #22c55e;
+      --success: #16a34a;
     }
 
     * { box-sizing: border-box; }
@@ -24,7 +24,7 @@
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: var(--text);
-      background: radial-gradient(1200px 800px at 10% 10%, #111827, var(--bg));
+      background: var(--bg);
       display: grid;
       grid-template-rows: auto 1fr auto;
       overflow: hidden;
@@ -32,14 +32,13 @@
 
     header, footer {
       padding: 12px 20px;
-      background: linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
-      backdrop-filter: blur(6px);
-      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
     }
-    footer { border-top: 1px solid rgba(255,255,255,0.06); border-bottom: none; font-size: 12px; color: var(--muted); }
+    footer { border-top: 1px solid var(--border); border-bottom: none; font-size: 12px; color: var(--muted); }
 
-    header h1 { margin: 0; font-size: 18px; letter-spacing: .5px; }
-    .sub { font-size: 12px; color: var(--muted); }
+    header h1 { margin: 0; font-size: 20px; letter-spacing: .2px; }
+    .sub { font-size: 13px; color: var(--muted); }
 
     .wrap {
       display: grid;
@@ -57,11 +56,11 @@
     }
 
     .panel {
-      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
       padding: 14px;
-      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
       display: grid;
       gap: 12px;
       align-content: start;
@@ -71,31 +70,32 @@
     .row .note { font-size: 12px; color: var(--muted); }
 
     .group { display: grid; gap: 8px; }
-    .group h3 { margin: 6px 0; font-size: 14px; color: var(--muted); letter-spacing: .3px; }
+    .group h3 { margin: 6px 0; font-size: 13px; color: var(--muted); letter-spacing: .2px; text-transform: uppercase; }
 
     .btn {
       appearance: none;
-      border: 1px solid rgba(255,255,255,.15);
-      background: linear-gradient(180deg, rgba(34,211,238,.15), rgba(167,139,250,.08));
+      border: 1px solid var(--border);
+      background: var(--surface);
       color: var(--text);
-      border-radius: 10px;
+      border-radius: 8px;
       padding: 8px 12px;
-      font-weight: 700;
+      font-weight: 600;
       cursor: pointer;
-      transition: transform .06s ease, box-shadow .2s ease, background .2s ease, opacity .2s ease;
-      box-shadow: 0 6px 16px rgba(34,211,238,.15);
+      transition: background .15s ease, color .15s ease, border-color .15s ease, transform .06s ease;
       font-size: 13px;
     }
-    .btn:hover { transform: translateY(-1px); }
+    .btn:hover { transform: translateY(-1px); background: #f1f5f9; }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
-    .btn.danger { background: linear-gradient(180deg, rgba(239,68,68,.18), rgba(239,68,68,.08)); border-color: rgba(239,68,68,.45); }
-    .btn.ok { background: linear-gradient(180deg, rgba(34,197,94,.18), rgba(34,197,94,.08)); border-color: rgba(34,197,94,.45); }
+    .btn.primary { background: var(--primary); color: var(--primary-contrast); border-color: var(--primary); }
+    .btn.primary:hover { filter: brightness(0.95); }
+    .btn.danger { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+    .btn.ok { background: #dcfce7; color: #065f46; border-color: #bbf7d0; }
 
-    .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+    .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
 
     input[type="number"], select, input[type="range"] {
-      background: rgba(255,255,255,.06);
-      border: 1px solid rgba(255,255,255,.12);
+      background: var(--surface);
+      border: 1px solid var(--border);
       color: var(--text);
       border-radius: 8px;
       padding: 6px 8px;
@@ -104,28 +104,44 @@
 
     .canvas-wrap {
       position: relative;
-      background: radial-gradient(800px 600px at 80% 20%, rgba(34,211,238,.08), transparent),
-                  radial-gradient(800px 600px at 20% 80%, rgba(167,139,250,.08), transparent),
-                  #0b1022;
-      border: 1px solid rgba(255,255,255,.08);
-      border-radius: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
       overflow: hidden;
     }
-    canvas { display: block; width: 100%; height: 100%; }
+    canvas { display: block; width: 100%; height: 100%; background: #ffffff; }
 
     .legend { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
-    .kbd { padding: 2px 6px; border-radius: 6px; border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08); }
+    .kbd { padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: #f1f5f9; color: #0f172a; }
 
     .stat { display: grid; grid-template-columns: 1fr auto; gap: 6px; font-size: 13px; }
     .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
 
-    a { color: var(--accent); text-decoration: none; }
+    a { color: var(--primary); text-decoration: none; }
+
+    /* Help modal */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: none; align-items: center; justify-content: center; z-index: 50; }
+    .modal { width: min(680px, 92vw); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
+    .modal h2 { margin: 0 0 6px; font-size: 18px; color: var(--text); }
+    .modal .p { color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <header>
-    <h1>⚡ Electrostatics Lab — Interactive Visualizer</h1>
-    <div class="sub">Explore electric field E, potential V, force F, and potential energy U with draggable point charges.</div>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+      <div>
+        <h1>⚡ Electrostatics Lab — Interactive Visualizer</h1>
+        <div class="sub">Explore electric field E, potential V, force F, and potential energy U with draggable point charges.</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <label class="toggle" title="Simplify the interface and enable helpful defaults">
+          <input type="checkbox" id="beginnerToggle" /> Beginner Mode
+        </label>
+        <button id="helpBtn" class="btn" title="Open quick tour and explanations">Help</button>
+      </div>
+    </div>
   </header>
 
   <main class="wrap">
@@ -134,30 +150,44 @@
       <div class="group">
         <h3>Charges</h3>
         <div class="row">
-          <button id="addPos" class="btn ok">+ Add +1 µC</button>
+          <button id="addPos" class="btn ok" title="Place a +1 microcoulomb charge near the center">+ Add +1 µC</button>
           <div class="note">Click to add a positive charge</div>
         </div>
         <div class="row">
-          <button id="addNeg" class="btn danger">+ Add −1 µC</button>
+          <button id="addNeg" class="btn danger" title="Place a −1 microcoulomb charge near the center">+ Add −1 µC</button>
           <div class="note">Click to add a negative charge</div>
         </div>
         <div class="row">
-          <button id="clear" class="btn danger">Clear All</button>
+          <button id="clear" class="btn danger" title="Remove all charges from the scene">Clear All</button>
           <div class="note">Remove all charges</div>
         </div>
       </div>
 
       <div class="group">
         <h3>Presets</h3>
-        <div class="row"><button id="dipole" class="btn">Dipole</button><div class="note">+q and −q</div></div>
-        <div class="row"><button id="quadrupole" class="btn">Quadrupole</button><div class="note">+ − − +</div></div>
-        <div class="row"><button id="line3" class="btn">Line of 3</button><div class="note">+ + +</div></div>
+        <div class="row"><button id="dipole" class="btn" title="Place one + charge and one − charge">Dipole</button><div class="note">+q and −q</div></div>
+        <div class="row"><button id="quadrupole" class="btn" title="Place four charges in a square pattern">Quadrupole</button><div class="note">+ − − +</div></div>
+        <div class="row"><button id="line3" class="btn" title="Place three + charges in a line">Line of 3</button><div class="note">+ + +</div></div>
+      </div>
+
+      <div class="group">
+        <h3>Quick Start</h3>
+        <div class="note">New here? Try this:</div>
+        <ol class="note" style="margin:0 0 0 18px; display:grid; gap:4px;">
+          <li>Click Dipole. Observe field arrows from + to −.</li>
+          <li>Toggle <strong>Potential heatmap</strong> to see high/low V regions.</li>
+          <li>Drag the + charge and watch E, V, F, U update at the cursor.</li>
+        </ol>
+        <div class="row">
+          <button id="guideBtn" class="btn" title="Run a guided setup for beginners">Start Guided Demo</button>
+          <div class="note">Sets helpful defaults</div>
+        </div>
       </div>
 
       <div class="group">
         <h3>Display</h3>
         <label class="toggle"><input type="checkbox" id="showVectors" checked /> Field vectors E</label>
-        <label class="toggle"><input type="checkbox" id="showHeat" /> Potential heatmap V</label>
+        <label class="toggle"><input type="checkbox" id="showHeat" checked /> Potential heatmap V</label>
         <label class="toggle"><input type="checkbox" id="showLines" /> Field lines</label>
         <div class="row">
           <label>Vector density</label>
@@ -166,6 +196,10 @@
         <div class="row">
           <label>Arrow scale</label>
           <input type="range" id="arrowScale" min="0.4" max="2.0" step="0.1" value="1.0" />
+        </div>
+        <div class="row">
+          <label>Display range (±V)</label>
+          <input type="number" id="displayRangeV" min="2" step="2" value="40" style="width:90px;" />
         </div>
       </div>
 
@@ -211,12 +245,40 @@
         <h3>Resources</h3>
         <div class="note">Try superposition: start with a dipole then add a third charge and observe changes.</div>
       </div>
+
+      <div class="group">
+        <h3>Glossary</h3>
+        <div class="note"><strong>Electric field E</strong>: how a + test charge would accelerate (direction and size).</div>
+        <div class="note"><strong>Electric potential V</strong>: energy per unit charge; differences in V drive charge motion.</div>
+        <div class="note"><strong>Force F</strong>: push/pull on a charge; F = qE.</div>
+        <div class="note"><strong>Potential energy U</strong>: stored energy for a charge at a point; U = qV.</div>
+      </div>
     </aside>
   </main>
 
   <footer>
     © 2025 • Educational tool for Physics II — Electrostatics
   </footer>
+
+  <!-- Help / Onboarding Modal -->
+  <div id="helpModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="modal">
+      <h2 id="helpTitle">Welcome to the Electrostatics Lab</h2>
+      <div class="p" id="helpBody">
+        This interactive uses point charges to visualize electric field E (arrows), potential V (optional heatmap),
+        field lines, and the resulting force F and potential energy U for a tiny 1 nC probe at your cursor.
+        
+        <div style="margin-top:10px;">
+          • Start with <strong>Dipole</strong>. • Drag charges. • Toggle the <strong>Potential heatmap</strong>.
+          • Hover the canvas to see E, V, F, U at the cursor.
+        </div>
+      </div>
+      <div class="actions">
+        <label class="toggle" title="Remember this preference"><input type="checkbox" id="dontShowHelp" /> Don't show again</label>
+        <button id="helpClose" class="btn">Got it</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     // Constants and scale
@@ -243,6 +305,7 @@
     const showLinesEl = document.getElementById('showLines');
     const vecDensityEl = document.getElementById('vecDensity');
     const arrowScaleEl = document.getElementById('arrowScale');
+    const displayRangeEl = document.getElementById('displayRangeV');
 
     const E_magEl = document.getElementById('E_mag');
     const E_dirEl = document.getElementById('E_dir');
@@ -253,6 +316,14 @@
     const selQEl = document.getElementById('selQ');
     const selLockEl = document.getElementById('selLock');
     const selDeleteEl = document.getElementById('selDelete');
+
+    // Beginner + Help
+    const beginnerToggle = document.getElementById('beginnerToggle');
+    const helpBtn = document.getElementById('helpBtn');
+    const helpModal = document.getElementById('helpModal');
+    const helpClose = document.getElementById('helpClose');
+    const dontShowHelp = document.getElementById('dontShowHelp');
+    const guideBtn = document.getElementById('guideBtn');
 
     // Helpers
     const fmt = (x, unit) => {
@@ -388,15 +459,21 @@
           Vs[i] = V; vmin = Math.min(vmin, V); vmax = Math.max(vmax, V); i++;
         }
       }
-      // Normalize around 0 to show positive/negative potentials distinctly
+      // Discrete 2 V bands, symmetric around 0 with clipping for visualization
       const a = Math.max(Math.abs(vmin), Math.abs(vmax)) || 1;
+      const userRange = Math.max(2, Math.abs(parseFloat(displayRangeEl.value)||40));
+      const Vclip = Math.min(a, userRange); // user-controlled ±V window
+      const totalBands = Math.max(1, Math.floor((2 * Vclip) / 2)); // 2V per band
       i=0; for (let j=0; j<h; j++){
         for (let i2=0; i2<w; i2++){
-          const V = Vs[i++];
-          const t = Math.max(-1, Math.min(1, V / a)); // [-1,1]
+          const Vraw = Vs[i++];
+          const Vc = Math.max(-Vclip, Math.min(Vraw, Vclip));
+          const bandIndex = Math.floor((Vc + Vclip) / 2); // 2V per band
+          const tBand = totalBands > 0 ? (bandIndex / totalBands) : 0.5; // [0,1]
+          const t = tBand * 2 - 1; // [-1,1]
           const {r,g,b} = divergingColormap(t);
           const k = (j*w + i2) * 4;
-          img.data[k] = r; img.data[k+1] = g; img.data[k+2] = b; img.data[k+3] = 120; // alpha
+          img.data[k] = r; img.data[k+1] = g; img.data[k+2] = b; img.data[k+3] = 200; // slightly higher alpha for crisp bands
         }
       }
       ictx.putImageData(img, 0, 0);
@@ -404,12 +481,31 @@
     }
 
     function divergingColormap(t){
-      // t in [-1,1], blue -> white -> red
-      const x = (t + 1)/2; // [0,1]
-      const r = Math.round(255 * x);
-      const b = Math.round(255 * (1 - x));
-      const g = Math.round(255 * (0.9 - Math.abs(t) * 0.9));
-      return {r, g, b};
+      // Multi-stop gradient: purple (low) → blue → green → yellow → orange → red (high)
+      const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+      t = clamp(t,-1,1);
+      const stops = [
+        { t:-1.0, c:{r:128,g:0  ,b:128} }, // purple
+        { t:-0.6, c:{r:0  ,g:102,b:204} }, // blue
+        { t:-0.2, c:{r:0  ,g:153,b:0  } }, // green
+        { t: 0.2, c:{r:255,g:235,b:59 } }, // yellow
+        { t: 0.6, c:{r:255,g:152,b:0  } }, // orange
+        { t: 1.0, c:{r:211,g:47 ,b:47 } }  // red
+      ];
+      // find segment
+      for (let i=0; i<stops.length-1; i++){
+        const a = stops[i], b = stops[i+1];
+        if (t >= a.t && t <= b.t){
+          const u = (t - a.t) / (b.t - a.t);
+          const lerp=(x,y,p)=>Math.round(x + (y - x) * p);
+          return {
+            r: lerp(a.c.r, b.c.r, u),
+            g: lerp(a.c.g, b.c.g, u),
+            b: lerp(a.c.b, b.c.b, u)
+          };
+        }
+      }
+      return stops[t<0?0:stops.length-1].c;
     }
 
     function drawHeat(){
@@ -551,6 +647,7 @@
     showHeatEl.addEventListener('change', ()=>{ heatDirty = true; });
     vecDensityEl.addEventListener('input', ()=>{});
     arrowScaleEl.addEventListener('input', ()=>{});
+    displayRangeEl.addEventListener('input', ()=>{ heatDirty = true; });
 
     function syncSelectedPanel(){
       const c = charges.find(c=>c.id===selectedId);
@@ -576,6 +673,41 @@
     presetDipole();
     syncSelectedPanel();
     render();
+
+    // Beginner Mode helpers
+    function setBeginnerMode(on){
+      beginnerToggle.checked = !!on;
+      // Defaults for beginners: vectors on, heatmap off, lines off, lower density, bigger arrows
+      showVectorsEl.checked = true;
+      showHeatEl.checked = false;
+      showLinesEl.checked = false;
+      vecDensityEl.value = on ? 60 : 45;
+      arrowScaleEl.value = on ? 1.2 : 1.0;
+      localStorage.setItem('electro_beginner_mode', on ? '1' : '0');
+      heatDirty = true;
+    }
+
+    beginnerToggle.addEventListener('change', ()=> setBeginnerMode(beginnerToggle.checked));
+
+    // Help modal
+    function openHelp(){ helpModal.style.display = 'flex'; }
+    function closeHelp(){ helpModal.style.display = 'none'; if (dontShowHelp.checked){ localStorage.setItem('electro_help_seen','1'); } }
+    helpBtn.addEventListener('click', openHelp);
+    helpClose.addEventListener('click', closeHelp);
+    helpModal.addEventListener('click', (e)=>{ if (e.target === helpModal) closeHelp(); });
+
+    // Guided Demo
+    guideBtn.addEventListener('click', ()=>{
+      presetDipole();
+      setBeginnerMode(true);
+      openHelp();
+    });
+
+    // First-visit behavior
+    const seen = localStorage.getItem('electro_help_seen') === '1';
+    const savedBeg = localStorage.getItem('electro_beginner_mode') === '1';
+    setBeginnerMode(savedBeg || !seen);
+    if (!seen) { openHelp(); }
   </script>
 </body>
 </html>
