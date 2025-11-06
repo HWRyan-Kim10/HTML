@@ -100,6 +100,7 @@
         <label class="toggle"><input type="checkbox" id="showHeat" checked /> Show potential heatmap (hot→cool)</label>
         <div class="row"><label>Heatmap detail</label><input id="heatRes" type="range" min="120" max="480" step="20" value="260" /></div>
         <label class="toggle"><input type="checkbox" id="showVectors" /> Show field vectors E</label>
+        <label class="toggle"><input type="checkbox" id="autoScale" checked /> Auto color scale</label>
         <div class="row"><label>Display range (±V)</label><input id="displayRangeV2" type="number" min="2" step="2" value="40" style="width:90px;" /></div>
       </div>
 
@@ -123,6 +124,11 @@
         <h3>Probe (cursor)</h3>
         <div class="row"><div>E |N/C|</div><div class="mono" id="E_mag">—</div></div>
         <div class="row"><div>V (potential)</div><div class="mono" id="V">—</div></div>
+      </div>
+      <div class="group">
+        <h3>Color Legend</h3>
+        <div class="note">Color ↔ potential V (uses current display range)</div>
+        <canvas id="legendCanvas" width="80" height="240" aria-label="Color to potential legend" style="border:1px solid var(--border); border-radius:8px; background:#fff;"></canvas>
       </div>
       <div class="group">
         <h3>About</h3>
@@ -186,6 +192,7 @@
     const heatResEl = document.getElementById('heatRes');
     const showVectorsEl = document.getElementById('showVectors');
     const displayRangeEl2 = document.getElementById('displayRangeV2');
+    const autoScaleEl = document.getElementById('autoScale');
     const E_magEl = document.getElementById('E_mag');
     const VEl = document.getElementById('V');
     const consentBar = document.getElementById('cookie-consent');
@@ -200,6 +207,7 @@
     let heatCache = null; let heatDirty = true;
     let simRunning = false;
     let electrons = []; // {x,y,life}
+    let lastVmin = 0, lastVmax = 0, lastVclip = 40, lastAmp = 40;
 
     // Helpers
     function toMeters(dxPx, dyPx){ return { dx: dxPx * meterPerPixel, dy: dyPx * meterPerPixel }; }
@@ -217,16 +225,37 @@
     }
     function fmt(x, unit){ if(!isFinite(x)) return '—'; const ax=Math.abs(x); let v=x, p=''; if(ax>=1e6){v=x/1e6;p='M';} else if(ax>=1e3){v=x/1e3;p='k';} else if(ax<1e-6){v=x*1e9;p='n';} else if(ax<1e-3){v=x*1e6;p='µ';} else if(ax<1){v=x*1e3;p='m';} return v.toFixed(3).replace(/\.0+$/,'').replace(/(\.\d*?)0+$/,'$1')+ ' ' + p + unit; }
 
-    // Heatmap: purple (low) → blue → green → yellow → orange → red (high)
+    // Heatmap: deep blue (low) → cyan → green → yellow → orange → red (high)
+    const HEAT_GAMMA = 0.75; // <1 increases contrast between adjacent color levels
+    const AUTO_PERCENTILE = 0.90; // robust clip for auto color scale (90th percentile of |V|)
+    function niceClipValue(v){
+      const base = Math.max(2, Math.abs(v) || 2);
+      const exp = Math.floor(Math.log10(base));
+      const pow = Math.pow(10, exp);
+      const scaled = base / pow;
+      const candidates = [1, 2, 5, 10];
+      let best = candidates[0], bestDiff = Infinity;
+      for(const c of candidates){
+        const val = c * pow;
+        const diff = Math.abs(val - base);
+        if (diff < bestDiff){ bestDiff = diff; best = val; }
+      }
+      return Math.max(2, Math.round(best));
+    }
+    function applyGammaSymmetric(t, gamma){ // t in [-1,1]
+      const s = (t + 1) * 0.5; // [0,1]
+      const sg = Math.pow(s, gamma);
+      return sg * 2 - 1; // back to [-1,1]
+    }
     function colorHotCool(t){ // t in [-1,1]
       const clamp=(v,min,max)=>Math.max(min,Math.min(max,v)); t=clamp(t,-1,1);
       const stops = [
-        { t:-1.0, c:[128,0  ,128, 185] }, // purple
-        { t:-0.6, c:[0  ,102,204, 185] }, // blue
-        { t:-0.2, c:[0  ,153,0  , 185] }, // green
-        { t: 0.2, c:[255,235,59 , 185] }, // yellow
-        { t: 0.6, c:[255,152,0  , 185] }, // orange
-        { t: 1.0, c:[211,47 ,47 , 185] }  // red
+        { t:-1.0, c:[0  , 56 ,168, 185] }, // deep blue
+        { t:-0.6, c:[0  ,160,255, 185] }, // cyan
+        { t:-0.2, c:[0  ,153,  0, 185] }, // green
+        { t: 0.2, c:[255,235, 59, 185] }, // yellow
+        { t: 0.6, c:[255,152,  0, 185] }, // orange
+        { t: 1.0, c:[211, 47, 47, 185] }  // red
       ];
       for(let i=0;i<stops.length-1;i++){
         const a=stops[i], b=stops[i+1];
@@ -237,6 +266,48 @@
         }
       }
       return stops[t<0?0:stops.length-1].c;
+    }
+    function drawLegend(){
+      const el = document.getElementById('legendCanvas');
+      if(!el) return;
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = 80, cssH = 240;
+      if (el.width !== Math.round(cssW*dpr)) {
+        el.width = Math.round(cssW*dpr);
+        el.height = Math.round(cssH*dpr);
+        el.style.width = cssW + 'px';
+        el.style.height = cssH + 'px';
+      }
+      const lctx = el.getContext('2d');
+      lctx.save(); lctx.scale(dpr,dpr);
+      lctx.clearRect(0,0,cssW,cssH);
+      // gradient bar
+      const barX = 8, barW = 18, barY = 8, barH = cssH - 16;
+      for(let y=0; y<barH; y++){
+        const tt = 1 - y/(barH-1); // 1..0 (top to bottom)
+        const t = tt*2 - 1;
+        const tAdj = applyGammaSymmetric(t, HEAT_GAMMA);
+        const [r,g,b,a8] = colorHotCool(tAdj);
+        lctx.fillStyle = `rgba(${r},${g},${b},${(a8/255).toFixed(3)})`;
+        lctx.fillRect(barX, barY + y, barW, 1);
+      }
+      lctx.strokeStyle = 'rgba(15,23,42,0.6)'; lctx.lineWidth = 1;
+      lctx.strokeRect(barX+0.5, barY+0.5, barW-1, barH-1);
+      // ticks and labels
+      lctx.fillStyle = '#0f172a';
+      lctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
+      lctx.textBaseline = 'middle';
+      const tickVals = [ lastVclip, lastVclip*0.5, 0, -lastVclip*0.5, -lastVclip ];
+      for(const v of tickVals){
+        const tt = 1 - ((v + lastVclip) / (2*lastVclip)); // 0..1 bottom to top inverted
+        const y = barY + tt * barH;
+        lctx.beginPath();
+        lctx.moveTo(barX + barW + 4, y);
+        lctx.lineTo(barX + barW + 10, y);
+        lctx.stroke();
+        lctx.fillText(fmt(v,'V'), barX + barW + 14, y);
+      }
+      lctx.restore();
     }
     function computeHeatmap(){
       const w = parseInt(heatResEl.value,10); const h = Math.round(w * canvas.height / canvas.width);
@@ -249,9 +320,20 @@
           const {V} = E_and_V_at(x,y); Vs[i]=V; if(V<vmin) vmin=V; if(V>vmax) vmax=V; i++;
         }
       }
-      const a = Math.max(Math.abs(vmin), Math.abs(vmax)) || 1;
+      lastVmin = vmin; lastVmax = vmax; lastAmp = Math.max(Math.abs(vmin), Math.abs(vmax)) || 1;
       const userRange = Math.max(2, Math.abs(parseFloat(displayRangeEl2.value)||40));
-      const Vclip = Math.min(a, userRange);
+      let Vclip;
+      if (autoScaleEl && autoScaleEl.checked) {
+        // robust auto clip by percentile of |V|
+        const absArr = Array.from(Vs, v => Math.abs(v));
+        absArr.sort((a,b)=>a-b);
+        const idx = Math.max(0, Math.min(absArr.length - 1, Math.floor((absArr.length - 1) * AUTO_PERCENTILE)));
+        Vclip = Math.max(2, absArr[idx] || userRange);
+        Vclip = niceClipValue(Vclip);
+      } else {
+        Vclip = Math.min(lastAmp, userRange);
+      }
+      lastVclip = Vclip;
       const totalBands = Math.max(1, Math.floor((2 * Vclip) / 2)); // 2V per band
       i=0; for(let j=0;j<h;j++){
         for(let i2=0;i2<w;i2++){
@@ -260,11 +342,13 @@
           const bandIndex = Math.floor((Vc + Vclip) / 2);
           const tBand = totalBands > 0 ? (bandIndex / totalBands) : 0.5;
           const t = tBand * 2 - 1;
-          const [r,g,b,a8] = colorHotCool(t); const k = (j*w + i2) * 4;
+          const tAdj = applyGammaSymmetric(t, HEAT_GAMMA);
+          const [r,g,b,a8] = colorHotCool(tAdj); const k = (j*w + i2) * 4;
           img.data[k]=r; img.data[k+1]=g; img.data[k+2]=b; img.data[k+3]=a8;
         }
       }
       ictx.putImageData(img,0,0); heatCache = off; heatDirty=false;
+      drawLegend();
     }
 
     // Field vectors (optional)
@@ -381,7 +465,8 @@
       const val = !!showVectorsEl.checked;
       storage.set('e2_showVectors', val);
     });
-    displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; });
+    displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; drawLegend(); });
+    autoScaleEl?.addEventListener('change',()=>{ const on = !!autoScaleEl.checked; displayRangeEl2.disabled = on; storage.set('e2_autoScale', on); heatDirty=true; drawLegend(); });
     showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); heatDirty=true; });
 
     // Consent banner (still used for cookies, but not gating Firestore writes)
@@ -483,7 +568,8 @@
           showHeat: !!showHeatEl.checked,
           showVectors: !!showVectorsEl.checked,
           heatRes: parseInt(heatResEl.value,10),
-          rangeV: parseFloat(displayRangeEl2.value)
+          rangeV: parseFloat(displayRangeEl2.value),
+          autoScale: !!(autoScaleEl && autoScaleEl.checked)
         }
       };
     }
@@ -497,6 +583,11 @@
         showVectorsEl.checked = !!p.display.showVectors;
         heatResEl.value = p.display.heatRes ?? heatResEl.value;
         displayRangeEl2.value = p.display.rangeV ?? displayRangeEl2.value;
+        if (typeof p.display.autoScale === 'boolean' && autoScaleEl) {
+          autoScaleEl.checked = p.display.autoScale;
+          displayRangeEl2.disabled = autoScaleEl.checked;
+          storage.set('e2_autoScale', autoScaleEl.checked);
+        }
         storage.set('e2_showHeat', showHeatEl.checked);
         storage.set('e2_showVectors', showVectorsEl.checked);
         storage.set('e2_displayRangeV', Number(displayRangeEl2.value));
@@ -517,9 +608,11 @@
           if (typeof d.showVectors === 'boolean') showVectorsEl.checked = d.showVectors;
           if (typeof d.rangeV === 'number') displayRangeEl2.value = d.rangeV;
           if (typeof d.heatRes === 'number') heatResEl.value = d.heatRes;
+          if (typeof d.autoScale === 'boolean' && autoScaleEl) { autoScaleEl.checked = d.autoScale; displayRangeEl2.disabled = d.autoScale; }
           storage.set('e2_showHeat', showHeatEl.checked);
           storage.set('e2_showVectors', showVectorsEl.checked);
           storage.set('e2_displayRangeV', Number(displayRangeEl2.value));
+          if (autoScaleEl) storage.set('e2_autoScale', autoScaleEl.checked);
           heatDirty = true;
         }
       } catch {}
@@ -541,6 +634,7 @@
           showVectors: !!showVectorsEl.checked,
           rangeV: Number(displayRangeEl2.value),
           heatRes: Number(heatResEl.value),
+          autoScale: !!(autoScaleEl && autoScaleEl.checked),
           updatedAt: Date.now()
         }, { merge: true });
       } catch {}
@@ -602,9 +696,11 @@
       const savedRange = storage.get('e2_displayRangeV', 40);
       const savedShowHeat = storage.get('e2_showHeat', true);
       const savedShowVectors = storage.get('e2_showVectors', false);
+      const savedAutoScale = storage.get('e2_autoScale', true);
       if (displayRangeEl2) displayRangeEl2.value = savedRange;
       if (showHeatEl) showHeatEl.checked = !!savedShowHeat;
       if (showVectorsEl) showVectorsEl.checked = !!savedShowVectors;
+      if (autoScaleEl) { autoScaleEl.checked = !!savedAutoScale; displayRangeEl2.disabled = !!savedAutoScale; }
       heatDirty = true;
     })();
 
