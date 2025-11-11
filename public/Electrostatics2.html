@@ -98,7 +98,6 @@
       <div class="group">
         <h3>Display</h3>
         <label class="toggle"><input type="checkbox" id="showHeat" checked /> Show potential heatmap (hot→cool)</label>
-        <div class="row"><label>Heatmap detail</label><input id="heatRes" type="range" min="120" max="480" step="20" value="260" /></div>
         <label class="toggle"><input type="checkbox" id="showVectors" /> Show field vectors E</label>
         <label class="toggle"><input type="checkbox" id="autoScale" checked /> Auto color scale</label>
         <div class="row"><label>Display range (±V)</label><input id="displayRangeV2" type="number" min="2" step="2" value="40" style="width:90px;" /></div>
@@ -189,7 +188,6 @@
     const saveCloudBtn = document.getElementById('saveCloud');
     const loadCloudBtn = document.getElementById('loadCloud');
     const showHeatEl = document.getElementById('showHeat');
-    const heatResEl = document.getElementById('heatRes');
     const showVectorsEl = document.getElementById('showVectors');
     const displayRangeEl2 = document.getElementById('displayRangeV2');
     const autoScaleEl = document.getElementById('autoScale');
@@ -228,6 +226,7 @@
     // Heatmap: deep blue (low) → cyan → green → yellow → orange → red (high)
     const HEAT_GAMMA = 0.75; // <1 increases contrast between adjacent color levels
     const AUTO_PERCENTILE = 0.90; // robust clip for auto color scale (90th percentile of |V|)
+    const HEATMAP_RES_PX = 480; // fixed high detail resolution (previous slider max)
     function niceClipValue(v){
       const base = Math.max(2, Math.abs(v) || 2);
       const exp = Math.floor(Math.log10(base));
@@ -310,7 +309,7 @@
       lctx.restore();
     }
     function computeHeatmap(){
-      const w = parseInt(heatResEl.value,10); const h = Math.round(w * canvas.height / canvas.width);
+      const w = HEATMAP_RES_PX; const h = Math.round(w * canvas.height / canvas.width);
       const off = document.createElement('canvas'); off.width = w; off.height = h; const ictx = off.getContext('2d');
       const img = ictx.createImageData(w,h); const Vs = new Float32Array(w*h);
       let vmin=Infinity, vmax=-Infinity, i=0;
@@ -334,6 +333,9 @@
         Vclip = Math.min(lastAmp, userRange);
       }
       lastVclip = Vclip;
+      if (autoScaleEl && autoScaleEl.checked && displayRangeEl2) {
+        displayRangeEl2.value = String(Vclip);
+      }
       const totalBands = Math.max(1, Math.floor((2 * Vclip) / 2)); // 2V per band
       i=0; for(let j=0;j<h;j++){
         for(let i2=0;i2<w;i2++){
@@ -460,13 +462,27 @@
     clearBtn.addEventListener('click',()=>{ clearCharges(); heatDirty=true; });
     dipoleBtn.addEventListener('click',()=>{ presetDipole(); });
     showHeatEl.addEventListener('change',()=>{ heatDirty=true; });
-    heatResEl.addEventListener('input',()=>{ heatDirty=true; });
     showVectorsEl.addEventListener('change',()=>{ 
       const val = !!showVectorsEl.checked;
       storage.set('e2_showVectors', val);
     });
     displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; drawLegend(); });
-    autoScaleEl?.addEventListener('change',()=>{ const on = !!autoScaleEl.checked; displayRangeEl2.disabled = on; storage.set('e2_autoScale', on); heatDirty=true; drawLegend(); });
+    autoScaleEl?.addEventListener('change',()=>{
+      const on = !!autoScaleEl.checked;
+      displayRangeEl2.disabled = on;
+      storage.set('e2_autoScale', on);
+      if (on) {
+        // Update immediately to show auto value in the input and legend
+        heatDirty = true;
+        computeHeatmap();
+      } else {
+        // Restore last manual value to the input without overwriting storage
+        const saved = storage.get('e2_displayRangeV', Number(displayRangeEl2.value) || 40);
+        displayRangeEl2.value = saved;
+        heatDirty = true;
+        drawLegend();
+      }
+    });
     showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); heatDirty=true; });
 
     // Consent banner (still used for cookies, but not gating Firestore writes)
@@ -567,7 +583,6 @@
         display: {
           showHeat: !!showHeatEl.checked,
           showVectors: !!showVectorsEl.checked,
-          heatRes: parseInt(heatResEl.value,10),
           rangeV: parseFloat(displayRangeEl2.value),
           autoScale: !!(autoScaleEl && autoScaleEl.checked)
         }
@@ -581,7 +596,6 @@
       if (p?.display) {
         showHeatEl.checked = !!p.display.showHeat;
         showVectorsEl.checked = !!p.display.showVectors;
-        heatResEl.value = p.display.heatRes ?? heatResEl.value;
         displayRangeEl2.value = p.display.rangeV ?? displayRangeEl2.value;
         if (typeof p.display.autoScale === 'boolean' && autoScaleEl) {
           autoScaleEl.checked = p.display.autoScale;
@@ -607,7 +621,6 @@
           if (typeof d.showHeat === 'boolean') showHeatEl.checked = d.showHeat;
           if (typeof d.showVectors === 'boolean') showVectorsEl.checked = d.showVectors;
           if (typeof d.rangeV === 'number') displayRangeEl2.value = d.rangeV;
-          if (typeof d.heatRes === 'number') heatResEl.value = d.heatRes;
           if (typeof d.autoScale === 'boolean' && autoScaleEl) { autoScaleEl.checked = d.autoScale; displayRangeEl2.disabled = d.autoScale; }
           storage.set('e2_showHeat', showHeatEl.checked);
           storage.set('e2_showVectors', showVectorsEl.checked);
@@ -633,7 +646,6 @@
           showHeat: !!showHeatEl.checked,
           showVectors: !!showVectorsEl.checked,
           rangeV: Number(displayRangeEl2.value),
-          heatRes: Number(heatResEl.value),
           autoScale: !!(autoScaleEl && autoScaleEl.checked),
           updatedAt: Date.now()
         }, { merge: true });
