@@ -479,14 +479,14 @@
     showVectorsEl.addEventListener('change',()=>{ 
       const val = !!showVectorsEl.checked;
       storage.set('e2_showVectors', val);
-      saveUserDisplayPref('showVectors', val).catch(()=>{});
+      saveUserDisplayPrefs({ showVectors: val }).catch(()=>{});
     });
     displayRangeEl2.addEventListener('input',()=>{ storage.set('e2_displayRangeV', Number(displayRangeEl2.value)); heatDirty=true; drawLegend(); });
     autoScaleEl?.addEventListener('change',()=>{
       const on = !!autoScaleEl.checked;
       displayRangeEl2.disabled = on;
       storage.set('e2_autoScale', on);
-      saveUserDisplayPref('autoScale', on).catch(()=>{});
+      saveUserDisplayPrefs({ autoScale: on }).catch(()=>{});
       if (on) {
         // Update immediately to show auto value in the input and legend
         heatDirty = true;
@@ -499,7 +499,7 @@
         drawLegend();
       }
     });
-    showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); saveUserDisplayPref('showHeat', !!showHeatEl.checked).catch(()=>{}); heatDirty=true; });
+    showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); saveUserDisplayPrefs({ showHeat: !!showHeatEl.checked }).catch(()=>{}); heatDirty=true; });
     selectedChargeMagEl?.addEventListener('input',()=>{ const v = parseFloat(selectedChargeMagEl.value); if(!isNaN(v) && selectedId){ const c = charges.find(cc=>cc.id===selectedId); if(c){ c.qMicroC = v; heatDirty=true; } } });
 
     // --- Guided Tour ---
@@ -791,53 +791,36 @@
     }
 
     // -------- Per-user display preferences (Firestore) --------
-    const PREF_COLLECTIONS = {
-      showHeat: 'showHeat_prefs',
-      showVectors: 'showVectors_prefs',
-      autoScale: 'autoScale_prefs'
-    };
-    async function saveUserDisplayPref(key, value){
+    function prefsDocPath(){ return ['users', fb.uid, 'display_prefs', 'electro2']; }
+    async function saveUserDisplayPrefs(partial){
       if (!fb.db) return;
       try {
         await ensureSignedIn();
         const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
-        const ref = doc(fb.db, PREF_COLLECTIONS[key] || key, fb.uid);
-        await setDoc(ref, { value: !!value, ts: Date.now() }, { merge: true });
-      } catch {}
+        const ref = doc(fb.db, ...prefsDocPath());
+        await setDoc(ref, { ...partial, updatedAt: Date.now() }, { merge: true });
+        if (cloudStatusEl) cloudStatusEl.textContent = 'Cloud: prefs saved ✔';
+      } catch (e) {
+        if (cloudStatusEl) cloudStatusEl.textContent = 'Cloud: prefs save failed';
+      }
     }
     async function loadUserDisplayPrefs(){
       if (!fb.db) return;
       try {
         await ensureSignedIn();
         const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
-        // showHeat
-        try {
-          const snap = await getDoc(doc(fb.db, PREF_COLLECTIONS.showHeat, fb.uid));
-          if (snap.exists() && typeof snap.data().value === 'boolean') {
-            showHeatEl.checked = snap.data().value;
-            storage.set('e2_showHeat', showHeatEl.checked);
-          }
-        } catch {}
-        // showVectors
-        try {
-          const snap = await getDoc(doc(fb.db, PREF_COLLECTIONS.showVectors, fb.uid));
-          if (snap.exists() && typeof snap.data().value === 'boolean') {
-            showVectorsEl.checked = snap.data().value;
-            storage.set('e2_showVectors', showVectorsEl.checked);
-          }
-        } catch {}
-        // autoScale
-        try {
-          const snap = await getDoc(doc(fb.db, PREF_COLLECTIONS.autoScale, fb.uid));
-          if (snap.exists() && typeof snap.data().value === 'boolean') {
-            autoScaleEl.checked = snap.data().value;
-            displayRangeEl2.disabled = autoScaleEl.checked;
-            storage.set('e2_autoScale', autoScaleEl.checked);
-          }
-        } catch {}
-        heatDirty = true;
-        drawLegend();
-      } catch {}
+        const ref = doc(fb.db, ...prefsDocPath());
+        const snap = await getDoc(ref);
+        if (snap.exists()){
+          const d = snap.data() || {};
+          if (typeof d.showHeat === 'boolean') { showHeatEl.checked = d.showHeat; storage.set('e2_showHeat', d.showHeat); }
+          if (typeof d.showVectors === 'boolean') { showVectorsEl.checked = d.showVectors; storage.set('e2_showVectors', d.showVectors); }
+          if (typeof d.autoScale === 'boolean') { autoScaleEl.checked = d.autoScale; displayRangeEl2.disabled = d.autoScale; storage.set('e2_autoScale', d.autoScale); }
+          heatDirty = true; drawLegend();
+        }
+      } catch (e) {
+        if (cloudStatusEl) cloudStatusEl.textContent = 'Cloud: prefs load failed';
+      }
     }
 
     // -------- Auto-save current scene to a fixed doc --------
@@ -892,11 +875,11 @@
         await maybeInitFirebase();
         await loadUserDisplayPrefs();
         // Ensure per-user docs exist even before any toggle changes
-        await Promise.all([
-          saveUserDisplayPref('showHeat', !!showHeatEl?.checked).catch(()=>{}),
-          saveUserDisplayPref('showVectors', !!showVectorsEl?.checked).catch(()=>{}),
-          saveUserDisplayPref('autoScale', !!autoScaleEl?.checked).catch(()=>{})
-        ]);
+        await saveUserDisplayPrefs({
+          showHeat: !!showHeatEl?.checked,
+          showVectors: !!showVectorsEl?.checked,
+          autoScale: !!autoScaleEl?.checked
+        }).catch(()=>{});
       } catch {}
     })();
 
