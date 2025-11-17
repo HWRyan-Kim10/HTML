@@ -35,7 +35,7 @@
     header h1 { margin: 0; font-size: 20px; }
     .sub { font-size: 13px; color: var(--muted); }
 
-    .wrap { display: grid; grid-template-columns: 300px 1fr 300px; gap: 16px; padding: 16px; height: 100%; min-height: 0; }
+    .wrap { display: grid; grid-template-columns: 300px 1fr 300px; gap: 16px; padding: 16px; height: 100%; min-height: 0; overflow: auto; }
     @media (max-width: 1100px){ .wrap { grid-template-columns: 1fr; overflow: auto; } body { overflow: auto; } .canvas-wrap { max-height: 60vh; } }
 
     .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.04); display: grid; gap: 12px; align-content: start; }
@@ -123,6 +123,14 @@
           <div>Arrows show E: the direction a + charge moves; electrons (−) move opposite.</div>
           <div><em>Simulate Flow</em> shows electron flow (− charges), so the dots move against the arrows.</div>
         </div>
+      </div>
+      
+      <div class="group" id="measureGroup">
+        <h3>Measure</h3>
+        <div class="row">
+          <label class="toggle"><input type="checkbox" id="measureMode" /> Measure distance between two charges</label>
+        </div>
+        <div class="note" id="measureReadout">Pick two charges to see distance, pair force (∝1/r²), and midpoint V/|E| (∝1/r).</div>
       </div>
     </aside>
 
@@ -212,6 +220,8 @@
     const consentAccept = document.getElementById('cookie-accept');
     const consentDecline = document.getElementById('cookie-decline');
     const cloudStatusEl = document.getElementById('cloudStatus');
+    const measureModeEl = document.getElementById('measureMode');
+    const measureReadoutEl = document.getElementById('measureReadout');
 
     // State
     const charges = []; // {id,x,y,qMicroC,locked}
@@ -226,6 +236,9 @@
     const ELECTRON_SPAWN_RATE_PER_SEC = 180; // constant spawn rate (particles/sec)
     let spawnAccumulator = 0; // fractional spawn budget
     let lastFrameTimeMs = performance.now();
+    // Measurement state
+    let measureActive = false;
+    let measureA = null, measureB = null; // charge ids
 
     // Helpers
     function toMeters(dxPx, dyPx){ return { dx: dxPx * meterPerPixel, dy: dyPx * meterPerPixel }; }
@@ -465,19 +478,85 @@
       }
     }
     function pickCharge(x,y){ for(let i=charges.length-1;i>=0;i--){ const c=charges[i]; if(Math.hypot(x-c.x,y-c.y)<=14) return c.id; } return null; }
+    // --- Measure helpers ---
+    function handleMeasureClick(x, y){
+      const id = pickCharge(x, y);
+      if (!id) return;
+      if (!measureA || (measureA && measureB)) { measureA = id; measureB = null; }
+      else if (id !== measureA) { measureB = id; }
+      updateMeasureReadout();
+    }
+    function updateMeasureReadout(){
+      if (!measureReadoutEl) return;
+      if (!measureActive || !measureA || !measureB) {
+        measureReadoutEl.textContent = 'Pick two charges to see distance, pair force (∝1/r²), and midpoint V/|E| (∝1/r).';
+        return;
+      }
+      const cA = charges.find(c=>c.id===measureA);
+      const cB = charges.find(c=>c.id===measureB);
+      if (!cA || !cB) {
+        measureReadoutEl.textContent = 'Pick two charges to see distance, pair force (∝1/r²), and midpoint V/|E| (∝1/r).';
+        return;
+      }
+      const dxPx = cB.x - cA.x, dyPx = cB.y - cA.y;
+      const rPx = Math.hypot(dxPx, dyPx);
+      const r = rPx * meterPerPixel;
+      const q1 = cA.qMicroC * 1e-6, q2 = cB.qMicroC * 1e-6;
+      const F = k * Math.abs(q1 * q2) / Math.max(r*r, 1e-12);
+      const attract = q1 * q2 < 0;
+      const mid = { x: (cA.x + cB.x)/2, y: (cA.y + cB.y)/2 };
+      function pairEVAt(x, y){
+        let Ex = 0, Ey = 0, V = 0;
+        for (const c of [cA, cB]) {
+          const dx = (x - c.x) * meterPerPixel;
+          const dy = (y - c.y) * meterPerPixel;
+          const r2 = dx*dx + dy*dy + soften*soften; const rr = Math.sqrt(r2);
+          const qC = c.qMicroC * 1e-6;
+          const coeff = k * qC / (r2 * rr);
+          Ex += coeff * dx; Ey += coeff * dy; V += k * qC / rr;
+        }
+        return { Ex, Ey, V };
+      }
+      const { Ex, Ey, V } = pairEVAt(mid.x, mid.y);
+      const Emag = Math.hypot(Ex, Ey);
+      measureReadoutEl.textContent =
+        `r ≈ ${fmt(r,'m')} • F ≈ ${fmt(F,'N')} (${attract ? 'attract' : 'repel'}) • midpoint V_pair ≈ ${fmt(V,'V')} • |E|_pair ≈ ${fmt(Emag,'N/C')}`;
+    }
+    function drawMeasure(){
+      if (!measureActive || !measureA || !measureB) return;
+      const cA = charges.find(c=>c.id===measureA);
+      const cB = charges.find(c=>c.id===measureB);
+      if (!cA || !cB) return;
+      const midx = (cA.x + cB.x)/2, midy = (cA.y + cB.y)/2;
+      const dxPx = cB.x - cA.x, dyPx = cB.y - cA.y;
+      const rPx = Math.hypot(dxPx, dyPx);
+      const r = rPx * meterPerPixel;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(37,99,235,0.9)';
+      ctx.fillStyle = 'rgba(37,99,235,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cA.x, cA.y); ctx.lineTo(cB.x, cB.y); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cA.x, cA.y, 14, 0, Math.PI*2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cB.x, cB.y, 14, 0, Math.PI*2); ctx.stroke();
+      ctx.font = '12px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(`r = ${fmt(r, 'm')}`, midx, midy - 8);
+      ctx.restore();
+    }
     canvas.addEventListener('mousedown',(e)=>{
       const r=canvas.getBoundingClientRect(); const x=(e.clientX-r.left)*(canvas.width/r.width); const y=(e.clientY-r.top)*(canvas.height/r.height);
+      if (measureActive){ handleMeasureClick(x, y); return; }
       const id=pickCharge(x,y); if(id){ const c=charges.find(c=>c.id===id); draggingId=id; selectedId=id; dupOnDrag=e.shiftKey; dragOffset.x=x-c.x; dragOffset.y=y-c.y; if(selectedChargeMagEl){ selectedChargeMagEl.value = String(c.qMicroC); selectedChargeMagEl.disabled = false; } }
     });
     canvas.addEventListener('mousemove',(e)=>{
       const r=canvas.getBoundingClientRect(); const x=(e.clientX-r.left)*(canvas.width/r.width); const y=(e.clientY-r.top)*(canvas.height/r.height);
       const {Ex,Ey,V}=E_and_V_at(x,y); E_magEl.textContent=fmt(Math.hypot(Ex,Ey),'N/C'); VEl.textContent=fmt(V,'V');
-      if(draggingId){ const i=charges.findIndex(c=>c.id===draggingId); if(i>=0){ if(dupOnDrag){ const c0=charges[i]; const dup=addCharge(c0.x,c0.y,c0.qMicroC); draggingId=dup.id; dupOnDrag=false; } const c=charges.find(c=>c.id===draggingId); c.x=x-dragOffset.x; c.y=y-dragOffset.y; heatDirty=true; } }
+      if(draggingId){ const i=charges.findIndex(c=>c.id===draggingId); if(i>=0){ if(dupOnDrag){ const c0=charges[i]; const dup=addCharge(c0.x,c0.y,c0.qMicroC); draggingId=dup.id; dupOnDrag=false; } const c=charges.find(c=>c.id===draggingId); c.x=x-dragOffset.x; c.y=y-dragOffset.y; heatDirty=true; if (measureActive && measureA && measureB) updateMeasureReadout(); } }
     });
     window.addEventListener('mouseup',()=>{ draggingId=null; });
 
     function addCharge(x,y,qMicroC){ const id=Math.random().toString(36).slice(2); charges.push({id,x,y,qMicroC,locked:false}); selectedId=id; heatDirty=true; return {id}; }
-    function clearCharges(){ charges.length=0; selectedId=null; if(selectedChargeMagEl){ selectedChargeMagEl.value=''; selectedChargeMagEl.disabled=true; } heatDirty=true; }
+    function clearCharges(){ charges.length=0; selectedId=null; if(selectedChargeMagEl){ selectedChargeMagEl.value=''; selectedChargeMagEl.disabled=true; } measureA=null; measureB=null; updateMeasureReadout(); heatDirty=true; }
     function center(){ return {x: canvas.width/2, y: canvas.height/2}; }
     function presetDipole(){ clearCharges(); const c=center(); addCharge(c.x-90,c.y,+1.0); addCharge(c.x+90,c.y,-1.0); }
 
@@ -485,7 +564,7 @@
     addPosBtn.addEventListener('click',()=>{ const c=center(); addCharge(c.x+(Math.random()*60-30), c.y+(Math.random()*60-30), +1.0); });
     addNegBtn.addEventListener('click',()=>{ const c=center(); addCharge(c.x+(Math.random()*60-30), c.y+(Math.random()*60-30), -1.0); });
     clearBtn.addEventListener('click',()=>{ clearCharges(); heatDirty=true; });
-    dipoleBtn.addEventListener('click',()=>{ presetDipole(); });
+    dipoleBtn.addEventListener('click',()=>{ presetDipole(); updateMeasureReadout(); });
     showHeatEl.addEventListener('change',()=>{ heatDirty=true; });
     showVectorsEl.addEventListener('change',()=>{ 
       const val = !!showVectorsEl.checked;
@@ -512,6 +591,7 @@
     });
     showHeatEl.addEventListener('change',()=>{ storage.set('e2_showHeat', showHeatEl.checked); saveUserDisplayPrefs({ showHeat: !!showHeatEl.checked }).catch(()=>{}); heatDirty=true; });
     selectedChargeMagEl?.addEventListener('input',()=>{ const v = parseFloat(selectedChargeMagEl.value); if(!isNaN(v) && selectedId){ const c = charges.find(cc=>cc.id===selectedId); if(c){ c.qMicroC = v; heatDirty=true; } } });
+    measureModeEl?.addEventListener('change', ()=>{ measureActive = !!measureModeEl.checked; if (!measureActive){ measureA = null; measureB = null; } updateMeasureReadout(); });
 
     // --- Guided Tour ---
     const tour = {
@@ -867,6 +947,7 @@
       }
       if(showVectorsEl.checked){ drawVectors(); }
       drawCharges();
+      drawMeasure();
       requestAnimationFrame(render);
     }
 
