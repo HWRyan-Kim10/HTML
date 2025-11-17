@@ -55,7 +55,7 @@
     .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
 
     .canvas-wrap { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; aspect-ratio: 1100 / 720; }
-    canvas { display: block; width: 100%; height: auto; background: #ffffff; aspect-ratio: 1100 / 720; }
+    canvas { display: block; width: 100%; height: auto; background: #ffffff; aspect-ratio: 1100 / 720; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
 
     .legend { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
     .kbd { padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: #f1f5f9; color: #0f172a; }
@@ -363,7 +363,8 @@
         Vclip = Math.max(2, absArr[idx] || userRange);
         Vclip = niceClipValue(Vclip);
       } else {
-        Vclip = Math.min(lastAmp, userRange);
+        // User's manual choice should be respected without capping
+        Vclip = userRange;
       }
       lastVclip = Vclip;
       if (autoScaleEl && autoScaleEl.checked && displayRangeEl2) {
@@ -471,13 +472,40 @@
     // Charges drawing & interaction
     function drawCharges(){
       for(const c of charges){
-        const r=12; ctx.beginPath(); ctx.fillStyle = c.qMicroC>=0 ? '#ef4444' : '#3b82f6';
-        ctx.strokeStyle='#0f172a'; ctx.lineWidth=1; ctx.arc(c.x,c.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
-        ctx.fillStyle='#ffffff'; ctx.font='bold 12px system-ui'; ctx.textAlign='center'; ctx.textBaseline='middle';
-        ctx.fillText(c.qMicroC>=0?'+':'−', c.x, c.y);
+        const r=12;
+        // Draw selection highlight for selected charge (especially useful on mobile)
+        if (c.id === selectedId) {
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, r + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = '#f59e0b'; // Orange highlight
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+        // Draw charge circle
+        ctx.beginPath();
+        ctx.fillStyle = c.qMicroC >= 0 ? '#ef4444' : '#3b82f6';
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1;
+        ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Draw charge symbol
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(c.qMicroC >= 0 ? '+' : '−', c.x, c.y);
       }
     }
-    function pickCharge(x,y){ for(let i=charges.length-1;i>=0;i--){ const c=charges[i]; if(Math.hypot(x-c.x,y-c.y)<=14) return c.id; } return null; }
+    function pickCharge(x, y) {
+      // Larger hit radius on touch devices for better accessibility
+      const hitRadius = ('ontouchstart' in window) ? 20 : 14;
+      for (let i = charges.length - 1; i >= 0; i--) {
+        const c = charges[i];
+        if (Math.hypot(x - c.x, y - c.y) <= hitRadius) return c.id;
+      }
+      return null;
+    }
     // --- Measure helpers ---
     function handleMeasureClick(x, y){
       const id = pickCharge(x, y);
@@ -543,17 +571,86 @@
       ctx.fillText(`r = ${fmt(r, 'm')}`, midx, midy - 8);
       ctx.restore();
     }
-    canvas.addEventListener('mousedown',(e)=>{
-      const r=canvas.getBoundingClientRect(); const x=(e.clientX-r.left)*(canvas.width/r.width); const y=(e.clientY-r.top)*(canvas.height/r.height);
-      if (measureActive){ handleMeasureClick(x, y); return; }
-      const id=pickCharge(x,y); if(id){ const c=charges.find(c=>c.id===id); draggingId=id; selectedId=id; dupOnDrag=e.shiftKey; dragOffset.x=x-c.x; dragOffset.y=y-c.y; if(selectedChargeMagEl){ selectedChargeMagEl.value = String(c.qMicroC); selectedChargeMagEl.disabled = false; } }
-    });
-    canvas.addEventListener('mousemove',(e)=>{
-      const r=canvas.getBoundingClientRect(); const x=(e.clientX-r.left)*(canvas.width/r.width); const y=(e.clientY-r.top)*(canvas.height/r.height);
-      const {Ex,Ey,V}=E_and_V_at(x,y); E_magEl.textContent=fmt(Math.hypot(Ex,Ey),'N/C'); VEl.textContent=fmt(V,'V');
-      if(draggingId){ const i=charges.findIndex(c=>c.id===draggingId); if(i>=0){ if(dupOnDrag){ const c0=charges[i]; const dup=addCharge(c0.x,c0.y,c0.qMicroC); draggingId=dup.id; dupOnDrag=false; } const c=charges.find(c=>c.id===draggingId); c.x=x-dragOffset.x; c.y=y-dragOffset.y; heatDirty=true; if (measureActive && measureA && measureB) updateMeasureReadout(); } }
-    });
-    window.addEventListener('mouseup',()=>{ draggingId=null; });
+    // Unified event handling for both mouse and touch
+    function getCanvasCoords(e, canvas) {
+      const r = canvas.getBoundingClientRect();
+      let clientX, clientY;
+      if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else if (e.changedTouches && e.changedTouches.length > 0) {
+        clientX = e.changedTouches[0].clientX;
+        clientY = e.changedTouches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      const x = (clientX - r.left) * (canvas.width / r.width);
+      const y = (clientY - r.top) * (canvas.height / r.height);
+      return { x, y };
+    }
+
+    function handlePointerDown(e) {
+      const { x, y } = getCanvasCoords(e, canvas);
+      if (measureActive) { 
+        handleMeasureClick(x, y); 
+        e.preventDefault();
+        return; 
+      }
+      const id = pickCharge(x, y);
+      if (id) {
+        const c = charges.find(c => c.id === id);
+        draggingId = id;
+        selectedId = id;
+        dupOnDrag = e.shiftKey || (e.touches && e.touches.length > 1); // Multi-touch = duplicate
+        dragOffset.x = x - c.x;
+        dragOffset.y = y - c.y;
+        if (selectedChargeMagEl) {
+          selectedChargeMagEl.value = String(c.qMicroC);
+          selectedChargeMagEl.disabled = false;
+        }
+        e.preventDefault(); // Prevent scrolling on touch
+      }
+    }
+
+    function handlePointerMove(e) {
+      const { x, y } = getCanvasCoords(e, canvas);
+      const { Ex, Ey, V } = E_and_V_at(x, y);
+      E_magEl.textContent = fmt(Math.hypot(Ex, Ey), 'N/C');
+      VEl.textContent = fmt(V, 'V');
+      if (draggingId) {
+        const i = charges.findIndex(c => c.id === draggingId);
+        if (i >= 0) {
+          if (dupOnDrag) {
+            const c0 = charges[i];
+            const dup = addCharge(c0.x, c0.y, c0.qMicroC);
+            draggingId = dup.id;
+            dupOnDrag = false;
+          }
+          const c = charges.find(c => c.id === draggingId);
+          c.x = x - dragOffset.x;
+          c.y = y - dragOffset.y;
+          heatDirty = true;
+          if (measureActive && measureA && measureB) updateMeasureReadout();
+        }
+        e.preventDefault(); // Prevent scrolling while dragging
+      }
+    }
+
+    function handlePointerUp(e) {
+      draggingId = null;
+    }
+
+    // Mouse events
+    canvas.addEventListener('mousedown', handlePointerDown);
+    canvas.addEventListener('mousemove', handlePointerMove);
+    window.addEventListener('mouseup', handlePointerUp);
+
+    // Touch events
+    canvas.addEventListener('touchstart', handlePointerDown, { passive: false });
+    canvas.addEventListener('touchmove', handlePointerMove, { passive: false });
+    canvas.addEventListener('touchend', handlePointerUp);
+    canvas.addEventListener('touchcancel', handlePointerUp);
 
     function addCharge(x,y,qMicroC){ const id=Math.random().toString(36).slice(2); charges.push({id,x,y,qMicroC,locked:false}); selectedId=id; heatDirty=true; return {id}; }
     function clearCharges(){ charges.length=0; selectedId=null; if(selectedChargeMagEl){ selectedChargeMagEl.value=''; selectedChargeMagEl.disabled=true; } measureA=null; measureB=null; updateMeasureReadout(); heatDirty=true; }
